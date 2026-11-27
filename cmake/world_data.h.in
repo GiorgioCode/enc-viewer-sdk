@@ -1,0 +1,6 @@
+// world_data.h — Recurso mundial generado a partir del GeoJSON incluido en el SDK.
+// El literal permite distribuir la biblioteca sin rutas absolutas ni archivos auxiliares de ejecución.
+#pragma once
+namespace enc {
+inline constexpr const char* kEmbeddedWorld = R"ENCWORLD(@ENC_WORLD_JSON@)ENCWORLD";
+}

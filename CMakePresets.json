@@ -1,0 +1,65 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "library",
+      "displayName": "Biblioteca Release, sin GLFW ni EGL",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENC_BUILD_EXAMPLES": "OFF",
+        "ENC_BUILD_TOOLS": "OFF",
+        "ENC_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Desarrollo con ejemplos, herramientas y pruebas",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENC_BUILD_EXAMPLES": "ON",
+        "ENC_BUILD_TOOLS": "ON",
+        "ENC_BUILD_TESTS": "ON",
+        "ENC_BUILD_RENDER_TESTS": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "Validación Release",
+      "inherits": "dev",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "cpu",
+      "displayName": "Pruebas sin GLFW ni EGL",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENC_BUILD_EXAMPLES": "OFF",
+        "ENC_BUILD_TOOLS": "ON",
+        "ENC_BUILD_TESTS": "ON",
+        "ENC_BUILD_RENDER_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "library", "configurePreset": "library", "jobs": 2 },
+    { "name": "dev", "configurePreset": "dev", "jobs": 2 },
+    { "name": "ci", "configurePreset": "ci", "jobs": 2 },
+    { "name": "cpu", "configurePreset": "cpu", "jobs": 2 }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
+    { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true } },
+    { "name": "cpu", "configurePreset": "cpu", "output": { "outputOnFailure": true } }
+  ]
+}

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentación de integración
+    url: https://github.com/GiorgioCode/enc-viewer-sdk#documentacion
+    about: Consultar los contratos de contexto, coordenadas, carga y recursos antes de abrir una incidencia.

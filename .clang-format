@@ -1,0 +1,15 @@
+# .clang-format — Estilo común del código C++ del visor y sus pruebas.
+# Unifica indentación, separación de sentencias y longitud de línea para facilitar la lectura.
+
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+SortIncludes: CaseSensitive
+ReflowComments: false
+PointerAlignment: Left

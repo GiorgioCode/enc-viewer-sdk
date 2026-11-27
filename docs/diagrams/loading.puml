@@ -1,0 +1,39 @@
+' loading.puml — Secuencia de indexación y carga transaccional de una colección ENC.
+' Explica actualizaciones, progreso, cancelación y confirmación de la nueva escena.
+@startuml
+title ENC SDK — indexación y carga
+skinparam shadowing false
+actor "Anfitrión" as host
+participant Catalog
+participant "Sistema de archivos" as fs
+participant "GDAL S57" as gdal
+participant Viewer
+participant "Escena temporal" as staging
+host -> Catalog : scan(carpeta)
+Catalog -> fs : recorrer .000 / normalizar / ordenar
+loop cada base
+  Catalog -> fs : buscar actualizaciones vecinas
+  Catalog -> gdal : abrir base con UPDATES=APPLY
+  gdal --> Catalog : DSID, escala y cobertura
+  Catalog -> host : progreso / posibilidad de cancelar
+end
+Catalog --> host : Status + catálogo consultable
+host -> Catalog : query(región) / cells()
+Catalog --> host : celdas elegidas
+host -> Viewer : loadCells(rutas)
+loop cada celda
+  Viewer -> host : progreso / posibilidad de cancelar
+  Viewer -> gdal : leer atributos y geometrías
+  gdal --> Viewer : objetos WGS84
+  Viewer -> staging : copiar / teselar / acumular límites
+end
+alt cancelación o fallo estricto
+  Viewer -> staging : descartar
+  Viewer --> host : error; escena anterior conservada
+else carga confirmada
+  Viewer -> staging : decodificar símbolos y asociar equipos
+  Viewer -> Viewer : reemplazar ENC / invalidar FeatureId
+  Viewer -> Viewer : encuadrar y reconstruir ecos simulados
+  Viewer --> host : Status + diagnósticos
+end
+@enduml

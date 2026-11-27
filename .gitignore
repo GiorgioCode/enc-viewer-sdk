@@ -1,0 +1,22 @@
+# Compilaciones, instalaciones y archivos generados locales.
+/build*/
+/install*/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+Testing/
+compile_commands.json
+*.ppm
+*.tar.gz
+*.zip
+
+# Editores, sistema operativo y herramientas Python.
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,7 @@
+// version.h — Versión pública generada a partir de project(VERSION) en CMake.
+// Ofrece identificación en compilación y evita duplicar la versión usada por enc::version().
+#pragma once
+#define ENC_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define ENC_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define ENC_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define ENC_VERSION_STRING "@PROJECT_VERSION@"

@@ -1,0 +1,34 @@
+' lifecycle.puml — Propiedad y vida de las imágenes CPU y texturas del contexto anfitrión.
+' El cierre explícito permite destruir escenas sin llamadas OpenGL desde sus destructores.
+@startuml
+title ENC SDK — vida del contexto y los recursos
+skinparam shadowing false
+actor "Anfitrión" as host
+participant Viewer
+participant "Datos CPU" as cpu
+participant "Cola GPU" as queue
+participant "Contexto OpenGL" as gl
+host -> Viewer : construir / loadFolder / addGeoTiff
+Viewer -> cpu : leer, reproyectar y guardar RGBA
+note right of cpu : Todavía no requiere contexto.
+host -> gl : crear y activar contexto
+host -> Viewer : render(target)
+Viewer -> gl : crear textura y dibujar
+Viewer -> queue : registrar textura viva
+host -> Viewer : removeRaster(id)
+Viewer -> cpu : liberar imagen retirada
+Viewer -> queue : encolar textura retirada
+note right of queue : removeRaster no llama OpenGL.
+host -> Viewer : render(target)
+Viewer -> queue : recoger retiradas
+queue -> gl : eliminar texturas retiradas
+Viewer -> gl : dibujar capas restantes
+host -> Viewer : releaseGraphicsResources()
+Viewer -> queue : retirar y liberar todas las texturas
+queue -> gl : glDeleteTextures
+note right of cpu : Los datos restantes permiten otra subida.
+host -> gl : destruir contexto
+host -> Viewer : destruir instancia
+Viewer -> cpu : liberar datos
+note right of Viewer : El destructor no llama OpenGL.
+@enduml

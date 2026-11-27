@@ -1,0 +1,47 @@
+' architecture.puml — Responsabilidades públicas, privadas y de la aplicación anfitriona.
+' Fuente editable del gráfico de arquitectura del SDK independiente.
+@startuml
+title ENC SDK — integración en otro proyecto
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+package "Aplicación anfitriona" {
+  component "Ventana, contexto y FBO" as host
+  component "Entrada, interfaz y reloj" as ui
+}
+package "API pública · include/enc" {
+  component "Catalog\nÍndice y consultas" as catalog
+  component "Viewer\nEscena, cámara y capas" as viewer
+  component "Symbols / tipos\nDescriptores y diagnósticos" as types
+}
+package "Implementación privada · src" {
+  component "Lectura y geometría" as data
+  component "Estilo y símbolos" as symbols
+  component "GeoTIFF y radar" as overlays
+  component "Renderizador\nGuarda y restaura estado GL" as renderer
+  component "Mundo incorporado" as world
+}
+component "GDAL / S57 / reproyección" as gdal
+component "OpenGL compatibilidad / GLU" as gl
+ui --> catalog
+ui --> viewer
+host --> viewer : contexto vigente / región
+viewer --> types
+catalog --> types
+catalog --> gdal
+viewer --> data
+viewer --> symbols
+viewer --> overlays
+viewer --> renderer
+data --> gdal
+data --> gl : teselación GLU
+data --> world
+overlays --> gdal : TIFF
+renderer --> gl
+renderer --> symbols
+renderer --> overlays
+note bottom of viewer
+  La biblioteca no crea ventanas ni usa GLFW.
+  El ejemplo GLFW consume esta misma API.
+end note
+@enduml

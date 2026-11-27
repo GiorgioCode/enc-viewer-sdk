@@ -1,0 +1,46 @@
+' rendering.puml — Orden de renderizado de una escena en el framebuffer del anfitrión.
+' La función no modifica el reloj, no crea ventanas y restaura el estado OpenGL antes de regresar.
+@startuml
+title ENC SDK — composición de un cuadro
+skinparam shadowing false
+start
+:Anfitrión activa contexto y framebuffer;
+:Anfitrión entrega tiempo mediante advance(dt);
+:Viewer.render(región física);
+if (¿Tamaño cero?) then (sí)
+  :Regresar sin dibujar;
+  stop
+endif
+:Validar contexto, perfil y hilo;
+if (¿Válidos?) then (sí)
+else (no)
+  :Devolver Status Graphics;
+  stop
+endif
+:Conservar estado OpenGL y matrices;
+:Aplicar paleta diurna o nocturna;
+:Recoger texturas retiradas y configurar viewport;
+:Dibujar fondo mundial;
+if (¿ENC visibles?) then (sí)
+  if (¿Escala general?) then (sí)
+    :Dibujar cobertura;
+  else (no)
+    :Dibujar superficies y líneas;
+    :Dibujar sectores, símbolos y etiquetas;
+  endif
+endif
+while (¿Quedan imágenes?) is (sí)
+  if (¿Visible?) then (sí)
+    :Subir textura si hace falta;
+    :Dibujar GeoTIFF con alfa y colocación;
+  endif
+endwhile (no)
+if (¿Radar visible?) then (sí)
+  :Dibujar PPI verde o rojo;
+  :Ecos externos o simulación con blancos;
+endif
+:Restaurar paleta y estado OpenGL;
+:Regresar al anfitrión;
+:Anfitrión dibuja su interfaz y presenta buffers;
+stop
+@enduml

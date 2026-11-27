@@ -1,0 +1,29 @@
+name: Informar un fallo
+description: Fallos de lectura, integración o renderizado reproducibles.
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Comportamiento observado y esperado
+      description: Explicar qué ocurre y qué se esperaba.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Pasos para reproducir
+      description: Incluir comandos o un ejemplo mínimo; si es posible, una celda pública que se pueda compartir.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Entorno
+      description: Versión del SDK, sistema, compilador, CMake, GDAL y versión/perfil OpenGL.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnósticos o capturas
+      description: Incluir Status.message, diagnósticos por archivo y salida relevante.

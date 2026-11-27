@@ -1,0 +1,86 @@
+# ci.yml — Compila y verifica el SDK, sus consumidores y el paquete sin publicar versiones.
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validation:
+    name: Linux / ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            cxx: g++
+          - compiler: Clang
+            cxx: clang++
+    env:
+      CXX: ${{ matrix.cxx }}
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Instalar dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang clang-format-18 cmake python3 libgdal-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev libegl1-mesa-dev xvfb xauth
+      - name: Comprobar fuentes y documentación
+        run: |
+          python3 tools/format_cpp.py --check
+          python3 tools/check_repository.py
+      - name: Configurar
+        run: cmake --preset ci
+      - name: Compilar
+        run: cmake --build --preset ci
+      - name: Probar CPU, renderizado e integración
+        run: ctest --preset ci
+      - name: Ejecutar el ejemplo de escritorio
+        run: xvfb-run -a ./build/ci/examples/viewer/enc-viewer-demo ./sample-charts --night --radar --demo-tiff --smoke-frames 4 --screenshot ./build/ci/viewer.ppm
+      - name: Crear paquete instalable
+        run: cpack --config build/ci/CPackConfig.cmake -B build/ci/dist
+      - name: Conservar paquetes, capturas e informes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.compiler }}
+          path: |
+            build/ci/dist/*.tar.gz
+            build/ci/dist/*.sha256
+            build/ci/tests/captures/*.ppm
+            build/ci/viewer.ppm
+            build/ci/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 7
+  library:
+    name: Biblioteca sin GLFW ni EGL
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Instalar dependencias del motor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libgdal-dev libgl1-mesa-dev libglu1-mesa-dev
+      - name: Compilar e instalar sólo la biblioteca
+        run: |
+          cmake --preset library
+          cmake --build --preset library
+          cmake --install build/library --prefix "$PWD/install"
+      - name: Crear distribución de fuentes
+        run: cpack --config build/library/CPackSourceConfig.cmake -B build/library/dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: source
+          path: |
+            build/library/dist/*-source.tar.gz
+            build/library/dist/*-source.tar.gz.sha256
+          retention-days: 7

@@ -1,0 +1,17 @@
+name: Proponer una mejora
+description: Cambios que faciliten incorporar el SDK en otras aplicaciones.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Necesidad de integración
+      description: Describir el caso de uso y la limitación actual.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Comportamiento propuesto
+      description: Incluir una posible API o ejemplo de uso y alternativas consideradas.
+    validations:
+      required: true

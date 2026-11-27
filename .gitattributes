@@ -1,0 +1,16 @@
+# Texto portable; las fuentes de los diagramas y sus renders se mantienen juntos.
+* text=auto
+*.cpp text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.puml text eol=lf
+*.svg text eol=lf linguist-generated=true
+*.png binary
+# Datos ENC binarios: Git nunca debe transformar sus terminadores de línea.
+*.[0-9][0-9][0-9] binary

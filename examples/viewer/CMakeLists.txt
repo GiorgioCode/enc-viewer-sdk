@@ -1,0 +1,17 @@
+# CMakeLists.txt — Consumidor de escritorio; puede compilarse dentro del SDK o contra el paquete instalado.
+# Sólo utiliza las cabeceras públicas enc/ y enlaces declarados, sin acceso a src/detail.
+cmake_minimum_required(VERSION 3.16)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(enc_viewer_consumer LANGUAGES CXX)
+    find_package(EncSDK 0.1 REQUIRED CONFIG)
+    find_package(OpenGL REQUIRED)
+    find_package(glfw3 3.3 REQUIRED)
+endif()
+add_executable(enc-viewer-demo main.cpp app.cpp interface.cpp input.cpp drawing.cpp)
+target_link_libraries(enc-viewer-demo PRIVATE enc::viewer glfw OpenGL::GL)
+if(DEFINED enc_sdk_SOURCE_DIR)
+    target_compile_definitions(enc-viewer-demo PRIVATE ENC_DEMO_CHARTS="${enc_sdk_SOURCE_DIR}/sample-charts")
+endif()
+if(NOT MSVC)
+    target_compile_options(enc-viewer-demo PRIVATE -Wall -Wextra -Wpedantic)
+endif()

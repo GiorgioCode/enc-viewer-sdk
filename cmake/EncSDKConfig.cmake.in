@@ -1,0 +1,9 @@
+# EncSDKConfig.cmake — Resolución de dependencias del paquete instalado.
+# La aplicación receptora recibe enc::viewer sin buscar GLFW ni conocer fuentes privados.
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(GDAL 3.0)
+find_dependency(OpenGL)
+find_dependency(Threads)
+include("${CMAKE_CURRENT_LIST_DIR}/EncSDKTargets.cmake")
+check_required_components(EncSDK)
