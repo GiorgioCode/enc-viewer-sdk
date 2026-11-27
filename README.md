@@ -3,41 +3,150 @@
 [![CI](https://github.com/GiorgioCode/enc-viewer-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/GiorgioCode/enc-viewer-sdk/actions/workflows/ci.yml)
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-blue.svg)](LICENSE)
 
-Biblioteca **C++17 y OpenGL** para incorporar cartas náuticas ENC S-57 a una
-aplicación: indexación, lectura, simbología, navegación con el mouse, presentación
-día/noche y superposición de GeoTIFF y radar.
+Biblioteca **C++17 y OpenGL** para integrar cartas náuticas ENC S-57, imágenes
+GeoTIFF y una capa radar en una aplicación anfitriona.
 
-El anfitrión controla la ventana, el contexto y el bucle de eventos. La biblioteca
-expone `enc::viewer` y cabeceras públicas sin tipos GDAL, OpenGL o GLFW.
-Incluye ejemplos de implementación y datos para probarla sin descargas adicionales.
+## Índice
 
-**Estado:** prueba de concepto reutilizable, API inicial 0.1. Requiere OpenGL de
-escritorio **2.1 o superior con perfil de compatibilidad**. Su simbología es un
-subconjunto propio; no es una implementación certificada de S-52 ni un ECDIS.
-Consultar [alcance y limitaciones](docs/alcance.md) antes de integrarla.
+1. [Presentación](#presentacion)
+2. [Documentación y recorrido de lectura](#documentacion)
+3. [Arquitectura y funcionamiento](#funcionamiento)
+4. [Capacidades y capturas](#capacidades)
+5. [Requisitos](#requisitos)
+6. [Compilar e integrar la biblioteca](#integracion)
+7. [Ejemplos de implementación](#ejemplos)
+8. [Estructura del repositorio](#estructura)
+9. [Validación y mantenimiento](#validacion)
+10. [Licencia y datos](#licencia)
 
-| Presentación diurna | Presentación nocturna |
+<a id="presentacion"></a>
+
+## Presentación
+
+ENC Viewer SDK reúne el indexado de carpetas de celdas S-57, la lectura de sus
+geometrías y atributos, la simbología y la composición de capas. Permite navegar
+las cartas, seleccionar objetos y alternar entre presentación diurna y nocturna.
+Las ENC (*Electronic Navigational Charts*) son cartas electrónicas vectoriales;
+cada celda representa una región y puede tener archivos de actualización asociados.
+
+La aplicación anfitriona crea la ventana y el contexto OpenGL, procesa el mouse y
+controla el bucle de eventos. La biblioteca se incorpora mediante el target CMake
+**`enc::viewer`** y la cabecera [`<enc/enc.h>`](include/enc/enc.h). Sus tipos públicos
+no exponen GDAL, OpenGL ni GLFW.
+
+**Estado:** prueba de concepto reutilizable, API inicial 0.1, validada en Linux.
+Utiliza OpenGL de escritorio **2.1 o superior con perfil de compatibilidad** y un
+subconjunto de simbología propio. Consultar el [alcance y las limitaciones](docs/alcance.md)
+para evaluar la integración; no es una implementación certificada de S-52 ni un ECDIS.
+
+<a id="documentacion"></a>
+
+## Documentación y recorrido de lectura
+
+La documentación explica tanto el uso de la API como las responsabilidades que
+conserva la aplicación receptora. Los ejemplos incluidos muestran implementaciones
+compilables de esos contratos.
+
+| Necesidad | Documento | Qué encontrarás |
+| --- | --- | --- |
+| Evaluar si el SDK sirve para tu aplicación | [Alcance y limitaciones](docs/alcance.md) | Capacidades, proyección, formatos, plataformas y límites de la prueba de concepto. |
+| Incorporarlo a otro proyecto | [Guía de integración](docs/integracion.md) | CMake, carga de celdas, mouse, HiDPI, capas, errores y cierre del contexto. |
+| Consultar el comportamiento de la API | [API y contratos](docs/api.md) | Unidades, valores predeterminados, identificadores, transacciones, concurrencia y recursos. |
+| Entender el motor y sus módulos | [Arquitectura](docs/arquitectura.md) | Organización interna, lectura, composición y ciclo de vida mediante diagramas. |
+| Partir de código de implementación | [Ejemplos](examples/README.md) | Indexador, ventana mínima y aplicación con interfaz completa. |
+| Manejar la aplicación de ejemplo | [Visor de integración](examples/viewer/README.md) | Controles, atajos y compilación contra el paquete instalado. |
+| Comprobar el comportamiento | [Validación](docs/validacion.md) | Pruebas reproducibles, contratos verificados y capturas del renderizador. |
+| Usar una distribución binaria | [Guía del paquete instalado](docs/paquete-instalado.md) | Dependencias, enlace y ciclo de uso sin el árbol de fuentes. |
+| Mantener o distribuir la biblioteca | [Mantenimiento](docs/mantenimiento.md) | Opciones CMake, perfiles, compatibilidad de versiones y paquetes. |
+
+**Primera integración:** leer [alcance](docs/alcance.md), seguir la
+[guía de integración](docs/integracion.md) y usar la
+[ventana mínima](examples/minimal/opengl.cpp) como referencia.
+
+**Lectura del código:** comenzar por los [ejemplos](examples/README.md), consultar
+los [contratos públicos](include/enc/enc.h) y seguir el recorrido de módulos de
+[arquitectura](docs/arquitectura.md). Los archivos incluyen encabezados y comentarios
+en español sobre las partes importantes.
+
+<a id="funcionamiento"></a>
+
+## Arquitectura y funcionamiento
+
+![Responsabilidades del anfitrión, API pública y módulos internos](docs/diagrams/architecture.svg)
+
+| Componente | Responsabilidad |
+| --- | --- |
+| [`enc::Catalog`](include/enc/catalog.h) | Descubrir las celdas de una carpeta, inspeccionar metadatos y consultar cobertura. |
+| [`enc::Viewer`](include/enc/viewer.h) | Cargar las celdas elegidas, gestionar cámara y capas, consultar objetos y renderizar. |
+| [Símbolos y tipos públicos](include/enc/symbols.h) | Interpretar atributos y consultar descriptores y ejemplos de simbología. |
+| Aplicación anfitriona | Crear el contexto, traducir eventos a llamadas de API, aportar el tiempo y presentar los buffers. |
+
+El recorrido habitual es **indexar → elegir y cargar celdas → configurar la escena
+→ avanzar y renderizar → liberar recursos gráficos**. El índice y la escena tienen
+vidas independientes: el anfitrión puede cargar una selección de celdas sin
+visualizar toda la carpeta.
+
+Las capas se dibujan en este orden: **mundo → cartas ENC → imágenes GeoTIFF → radar**.
+Los controles de interfaz pertenecen al anfitrión y pueden dibujarse después.
+
+Los diagramas se incluyen como SVG para leerlos directamente y como fuentes
+PlantUML para editarlos:
+
+| Diagrama | Lectura | Fuente editable |
+| --- | --- | --- |
+| Responsabilidades y dependencias | [Arquitectura](docs/diagrams/architecture.svg) | [architecture.puml](docs/diagrams/architecture.puml) |
+| Indexado y carga transaccional | [Carga](docs/diagrams/loading.svg) | [loading.puml](docs/diagrams/loading.puml) |
+| Composición de un cuadro | [Renderizado](docs/diagrams/rendering.svg) | [rendering.puml](docs/diagrams/rendering.puml) |
+| Contexto, datos CPU y texturas GPU | [Ciclo de vida](docs/diagrams/lifecycle.svg) | [lifecycle.puml](docs/diagrams/lifecycle.puml) |
+
+La [guía de arquitectura](docs/arquitectura.md) desarrolla cada recorrido y explica
+dónde intervenir para extender el motor o implementar otro anfitrión.
+
+<a id="capacidades"></a>
+
+## Capacidades y capturas
+
+| Área | Funciones |
+| --- | --- |
+| Celdas S-57 | Índice recursivo de bases `.000`, metadatos DSID, escala, cobertura, actualizaciones vecinas e inventario JSON. |
+| Lectura | GDAL, geometrías y atributos, profundidades, teselación con huecos, cargas transaccionales y cancelación entre celdas. |
+| Navegación | Mapa mundial incorporado, encuadre, desplazamiento, zoom al cursor y selección de objetos. |
+| Presentación | Día/noche, símbolos vectoriales por atributos, 44 ejemplos y controles de profundidades, etiquetas y sondas. |
+| Imágenes | Varias capas TIFF/GeoTIFF con reproyección, transparencia, orden y ajuste manual. |
+| Radar | PPI simulado o ecos geográficos del anfitrión; visualización verde de día y roja de noche. |
+| Composición | Región del framebuffer activo, HiDPI, conservación de estado OpenGL y liberación explícita de recursos. |
+
+| Carta diurna | Carta nocturna |
 | --- | --- |
 | ![Carta diurna](docs/images/day-charts.png) | ![Carta nocturna](docs/images/night-charts.png) |
 
-## Capacidades
+La [galería de validación](docs/validacion.md#capturas-del-renderizador) muestra
+además radar, GeoTIFF y catálogo de símbolos, junto con las pruebas que verifican
+su comportamiento. El [alcance](docs/alcance.md) detalla los límites de cada área.
 
-- Catálogo recursivo de celdas `.000`, metadatos DSID, escala, cobertura,
-  actualizaciones vecinas, consultas espaciales e inventario JSON.
-- Lectura con GDAL, atributos y profundidades, teselación con huecos,
-  cargas transaccionales y cancelación entre celdas.
-- Mundo incorporado al binario, encuadre, desplazamiento, zoom al cursor y selección.
-- Símbolos vectoriales por atributos: boyas, balizas, luces, rocas y otras clases;
-  catálogo de 44 ejemplos y controles de profundidades, etiquetas y sondas.
-- Varias imágenes TIFF/GeoTIFF: reproyección, transparencia, orden y ajuste manual.
-- PPI simulado o ecos geográficos aportados por el anfitrión; verde de día y rojo de noche.
-- Composición en una región del framebuffer activo, HiDPI y conservación de estado GL.
+<a id="requisitos"></a>
 
-## Compilación rápida
+## Requisitos
 
-Validado en Linux. Se necesitan CMake ≥ 3.16, compilador C++17, GDAL ≥ 3.0 con
-controlador S57, OpenGL y GLU. GLFW se utiliza únicamente en los ejemplos de ventana;
-EGL/Mesa, en las pruebas gráficas. Python 3 añade verificaciones de desarrollo.
+| Para qué | Dependencias |
+| --- | --- |
+| Biblioteca | Compilador C++17, CMake ≥ 3.16, GDAL ≥ 3.0 con controlador S57, OpenGL y GLU. |
+| Renderizado | Contexto OpenGL de escritorio ≥ 2.1 con compatibilidad, aportado por el anfitrión. |
+| Ejemplos de ventana | GLFW ≥ 3.3 y una sesión gráfica. |
+| Pruebas gráficas | EGL/Mesa; pueden ejecutarse sin sesión de escritorio. |
+| Verificaciones de desarrollo | Python 3; clang-format 18 para comprobar formato. |
+| Perfiles CMake incluidos | CMake ≥ 3.21. |
+
+La biblioteca no requiere GLFW ni EGL. El perfil `cpu` permite ejecutar las pruebas
+sin esas dependencias. OpenGL ES, WebGL y los perfiles core no están soportados.
+
+<a id="integracion"></a>
+
+## Compilar e integrar la biblioteca
+
+### Compilar e instalar
+
+En Ubuntu/Debian:
 
 ```sh
 git clone https://github.com/GiorgioCode/enc-viewer-sdk.git
@@ -48,10 +157,10 @@ cmake --build build/library --parallel 2
 cmake --install build/library --prefix "$PWD/install"
 ```
 
-Por defecto se compila sólo la biblioteca. No requiere copiar recursos del mundo
-al ejecutable; las cartas y las imágenes se reciben mediante rutas de la aplicación.
+Por defecto se compila sólo la biblioteca estática. El mapa mundial queda
+incorporado al binario; las cartas y las imágenes se proporcionan mediante rutas.
 
-## Incorporación a una aplicación
+### Enlazar desde otra aplicación
 
 Con el paquete instalado:
 
@@ -61,54 +170,54 @@ add_executable(mi_aplicacion main.cpp)
 target_link_libraries(mi_aplicacion PRIVATE enc::viewer)
 ```
 
-Configurar el anfitrión con `-DCMAKE_PREFIX_PATH=/ruta/al/paquete`. También se puede
-incluir el código como subdirectorio, con las opciones predeterminadas:
+Configurar ese proyecto con `-DCMAKE_PREFIX_PATH=/ruta/al/paquete`. También se
+pueden incorporar las fuentes directamente:
 
 ```cmake
 add_subdirectory(external/enc-viewer-sdk)
 target_link_libraries(mi_aplicacion PRIVATE enc::viewer)
 ```
 
-La API está en [`<enc/enc.h>`](include/enc/enc.h). La secuencia habitual es:
+La [guía de integración](docs/integracion.md) continúa desde aquí con las llamadas
+C++, la propiedad del contexto, los errores y el ciclo de cierre. Las
+[opciones y perfiles](docs/mantenimiento.md#opciones-y-perfiles) explican cómo
+activar herramientas, ejemplos y pruebas.
 
-```mermaid
-flowchart LR
-    A[Indexar carpeta] --> B[Elegir y cargar celdas]
-    B --> C[Configurar cámara y capas]
-    C --> D[Avanzar y renderizar en el contexto anfitrión]
-    D --> D
-    D --> E[Liberar recursos con el contexto vigente]
-```
+<a id="ejemplos"></a>
 
-Los ejemplos [sin ventana](examples/minimal/index.cpp) y
-[OpenGL mínimo](examples/minimal/opengl.cpp) contienen implementaciones compilables.
-La [guía de integración](docs/integracion.md) explica el ciclo completo, errores,
-coordenadas, concurrencia y propiedad de los recursos.
+## Ejemplos de implementación
 
-## Probar los ejemplos
-
-Con CMake ≥ 3.21 se pueden usar los perfiles incluidos:
+Desde la raíz del repositorio, con las dependencias de la biblioteca instaladas
+y CMake ≥ 3.21:
 
 ```sh
 sudo apt install libglfw3-dev libegl1-mesa-dev python3
 cmake --preset dev
 cmake --build --preset dev
-ctest --preset dev
+```
+
+| Ejemplo | Qué permite estudiar | Código o guía |
+| --- | --- | --- |
+| Indexador sin ventana | Descubrimiento, inventario JSON y lectura sin contexto gráfico. | [index.cpp](examples/minimal/index.cpp) |
+| Ventana mínima | Contexto, bucle de dibujo, zoom con el mouse y liberación de recursos. | [opengl.cpp](examples/minimal/opengl.cpp) |
+| Visor completo | Navegación, selección, interfaz día/noche, radar y múltiples imágenes. | [Guía y controles](examples/viewer/README.md) |
+
+```sh
+# Indexar y cargar las tres celdas incluidas.
+./build/dev/enc-index ./sample-charts ./build/dev/inventory.json
+
+# Mostrar la integración gráfica mínima.
+./build/dev/enc-minimal ./sample-charts
+
+# Probar las capas y los controles de la aplicación completa.
 ./build/dev/examples/viewer/enc-viewer-demo ./sample-charts --radar --demo-tiff --night
 ```
 
-El [ejemplo completo](examples/viewer/README.md) permite abrir carpetas, inspeccionar
-objetos, apilar imágenes y controlar las capas y la presentación desde su interfaz.
-Requiere una sesión gráfica. También se incluyen:
+Los ejemplos utilizan exclusivamente la API pública. El visor completo también
+puede [compilarse contra el paquete instalado](examples/viewer/README.md#compilar-como-proyecto-receptor-independiente).
 
-```sh
-# Índice y lectura sin ventana ni contexto OpenGL.
-./build/dev/enc-index ./sample-charts ./build/dev/inventory.json
-# Ventana con navegación y código de integración mínimo.
-./build/dev/enc-minimal ./sample-charts
-```
-
-Con CMake 3.16–3.20, configurar sin perfiles:
+<details>
+<summary>Compilar ejemplos con CMake 3.16–3.20, sin perfiles</summary>
 
 ```sh
 cmake -S . -B build/dev -DENC_BUILD_EXAMPLES=ON -DENC_BUILD_TOOLS=ON -DENC_BUILD_TESTS=ON
@@ -116,30 +225,59 @@ cmake --build build/dev --parallel 2
 ctest --test-dir build/dev --output-on-failure
 ```
 
-<a id="documentacion"></a>
+</details>
 
-## Documentación
+<a id="estructura"></a>
 
-| Guía | Contenido |
-| --- | --- |
-| [Integración](docs/integracion.md) | CMake, contexto, carga, interacción, capas y errores. |
-| [API y contratos](docs/api.md) | Unidades, IDs, transacciones, hilos y recursos. |
-| [Arquitectura](docs/arquitectura.md) | Módulos y diagramas PlantUML con SVG incluidos. |
-| [Ejemplo completo](examples/viewer/README.md) | Controles y compilación independiente. |
-| [Validación](docs/validacion.md) | Pruebas reproducibles y capturas del renderizador. |
-| [Alcance](docs/alcance.md) | Capacidades y límites de integración. |
-| [Mantenimiento](docs/mantenimiento.md) | Versiones, dependencias y empaquetado. |
-| [Contribuciones](CONTRIBUTING.md) | Preparación del entorno y criterios de cambios. |
-| [Cambios](CHANGELOG.md) | Registro de versiones. |
-| [Seguridad](SECURITY.md) | Cómo comunicar vulnerabilidades. |
+## Estructura del repositorio
 
-Los módulos incluyen encabezados y comentarios en español. Para comenzar a leer el
-código, seguir `examples/minimal` → `include/enc` → `src`; el ejemplo de interfaz
-completa está separado del motor.
+```text
+include/enc/       API pública: catálogo, escena, símbolos y tipos
+src/               Implementación del motor y módulos privados
+examples/          Consumidores de la biblioteca, mínimos y con interfaz
+assets/            Mapa mundial incorporado y su procedencia
+sample-charts/     Celdas S-57 de prueba con sus actualizaciones y avisos
+docs/              Guías, capturas y diagramas PlantUML/SVG
+cmake/             Configuración del paquete y cabeceras generadas
+tests/             Pruebas de comportamiento e integración
+tools/             Comprobaciones de formato, cabeceras y documentación
+.github/           CI y plantillas de colaboración
+```
+
+El [mapa de módulos](docs/arquitectura.md#organización) relaciona los archivos
+internos con sus responsabilidades. La cabecera de versión se genera durante la
+configuración de CMake y se instala junto con las cabeceras públicas.
+
+<a id="validacion"></a>
+
+## Validación y mantenimiento
+
+Con el perfil de desarrollo compilado:
+
+```sh
+ctest --preset dev
+python3 tools/check_repository.py
+python3 tools/format_cpp.py --check
+```
+
+Las pruebas cubren CPU, renderizado EGL, geometría, cabeceras públicas y las dos
+formas de integración: `add_subdirectory` y paquete instalado con traslado del
+prefijo. La [guía de validación](docs/validacion.md) describe los contratos verificados,
+las capturas y la ejecución sin EGL. La [CI](.github/workflows/ci.yml) configura
+GCC y Clang en Linux, el ejemplo de escritorio con Xvfb y el empaquetado.
+
+Para contribuir, seguir [CONTRIBUTING.md](CONTRIBUTING.md). La
+[guía de mantenimiento](docs/mantenimiento.md) documenta versiones y distribución;
+[CHANGELOG.md](CHANGELOG.md) registra los cambios y [SECURITY.md](SECURITY.md) explica
+cómo comunicar vulnerabilidades.
+
+<a id="licencia"></a>
 
 ## Licencia y datos
 
-Código y documentación propios bajo [MIT](LICENSE). El mapa mundial y las celdas
-de ejemplo mantienen sus respectivas condiciones y avisos de procedencia:
-[mapa mundial](assets/README.md), [cartas NOAA](sample-charts/README.md) y
-[componentes de terceros](THIRD_PARTY_NOTICES.md).
+Código y documentación propios bajo [MIT](LICENSE). Los recursos y las
+dependencias conservan sus condiciones de origen:
+
+- [Mapa mundial](assets/README.md): procedencia y conversión de Natural Earth.
+- [Cartas de ejemplo](sample-charts/README.md): celdas NOAA y avisos incluidos.
+- [Componentes de terceros](THIRD_PARTY_NOTICES.md): datos, bibliotecas y referencias de simbología.
