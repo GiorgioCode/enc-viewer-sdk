@@ -1,0 +1,42 @@
+' streaming.puml — Carga progresiva por región, revisiones y caché de celdas en RAM.
+' El trabajador prepara datos CPU y poll confirma únicamente la revisión vigente desde el anfitrión.
+@startuml
+title ENC SDK — carga progresiva y confirmación
+skinparam shadowing false
+actor "Anfitrión / hilo gráfico" as host
+participant "ChartStreamer" as stream
+participant "Trabajador CPU" as worker
+database "Caché LRU RAM" as cache
+participant "GDAL / geometría" as gdal
+participant "Viewer" as viewer
+host -> stream : requestView(región, escala)
+stream -> stream : consultar catálogo / crear revisión
+stream -> worker : iniciar última solicitud
+loop cada celda de la revisión
+  worker -> worker : comprobar cancelación/revisión
+  worker -> cache : buscar ruta + firma base/updates
+  alt entrada vigente
+    cache --> worker : celda decodificada
+  else no reutilizable
+    worker -> gdal : leer y teselar en CPU
+    gdal --> worker : celda + diagnósticos
+    worker -> cache : guardar si cabe / expulsar LRU
+  end
+  worker -> worker : preparar colección candidata
+end
+worker --> stream : resultado de la revisión
+host -> stream : poll(viewer), sin esperar
+alt vigente y correcto
+  stream -> viewer : confirmar ENC / invalidar FeatureId
+  viewer -> viewer : conservar cámara, TIFF y contactos
+  stream --> host : true
+else trabajo obsoleto, cancelado o fallido
+  stream -> stream : descartar / conservar diagnóstico
+  stream --> host : false; escena visible conservada
+end
+host -> viewer : advance(dt) / render(destino)
+note over cache
+  Presupuesto estimado de entradas, no del proceso.
+  Sin caché persistente en disco.
+end note
+@enduml

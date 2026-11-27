@@ -21,7 +21,11 @@ GLFW completa requiere una sesión gráfica o Xvfb y se verifica por separado.
 | Prueba | Qué comprueba |
 | --- | --- |
 | `enc-cpu` | Índice, 12 actualizaciones, DSID, cobertura, JSON, refresco, cancelación, carga estricta/parcial, deduplicación, cámara, selección, IDs, símbolos y TIFF sin contexto. |
+| `enc-advanced` | Proyecciones/giro, zoom y desplazamiento, antimeridiano, historial, escala, reglas, diccionarios, consulta múltiple y carga progresiva: aciertos de caché, revisiones, cancelación, regiones vacías y presupuesto. |
+| `enc-navigation` | Selección con giro, antimeridiano y símbolos ampliados; encuadre de esquinas TIFF próximas a ±180° con ambas proyecciones. |
+| `enc-contacts` | Lotes de informes, fuentes/estados, validación, reloj, CPA/TCPA, peligro, reconocimiento, filtros, historial, pérdida/recuperación y persistencia al cambiar ENC. |
 | `enc-render` | Mundo, profundidades ENC, noche, varias imágenes y orden, alfa, RGB, grises de 16 bits, paletas, proyección, rotación, GCP, radar simulado/externo, pausa e HiDPI. |
+| `enc-presentation` | TIFF en el antimeridiano con giro/Mercator, mosaico con cobertura y huecos, colores/reglas, UTF-8, símbolos AIS/radar, orientación, peligro/parpadeo/reconocimiento, adquisición, avisos de prueba, asociados y reconstrucción del atlas. |
 | `enc-geometry` | Teselación de anillos con igual orientación, área correcta y hueco interior conservado, sin contexto gráfico. |
 | `enc-package` | Instalación, traslado del prefijo y compilación/ejecución de un consumidor que sólo conoce `find_package(EncSDK)` y cabeceras públicas. |
 | `enc-subproject` | Anfitrión con `add_subdirectory`, lectura de cartas y ausencia de targets adicionales por defecto. |
@@ -50,7 +54,7 @@ cuando el controlador permite crear ese contexto.
 
 ## Capturas del renderizador
 
-Las pruebas generan PPM en `build/dev/tests/captures`. Las versiones PNG incluidas
+Las pruebas gráficas generan PPM en `build/dev/tests/captures`. Las versiones PNG incluidas
 abajo muestran resultados del renderizador.
 
 | Carta diurna | Carta nocturna |
@@ -65,6 +69,15 @@ abajo muestran resultados del renderizador.
 | --- | --- |
 | ![GeoTIFF](images/geotiff.png) | ![Símbolos](images/symbols.png) |
 
+| Contactos AIS/radar | Contactos nocturnos |
+| --- | --- |
+| ![Contactos](images/contacts-demo.png) | ![Contactos de noche](images/contacts-night.png) |
+
+Las capturas de contactos pertenecen al [ejemplo avanzado](../examples/advanced/README.md)
+y muestran informes sintéticos. Las comprobaciones visuales verifican comportamiento del motor; no son
+ensayos de conformidad OMI/IHO. La [tabla de trazabilidad](contactos.md#presentación-y-trazabilidad)
+delimita qué referencias de presentación se implementan.
+
 ## Ejemplo de implementación completo
 
 ![Visor de integración con carta, radar, TIFF e interfaz nocturna](images/viewer-night.png)
@@ -72,7 +85,7 @@ abajo muestran resultados del renderizador.
 Para reproducir una captura del ejemplo con una sesión gráfica:
 
 ```sh
-./build/dev/examples/viewer/enc-viewer-demo ./sample-charts --radar --demo-tiff --night \
+./build/dev/examples/viewer/enc-viewer-demo ./sample-charts --contacts --streaming --radar --demo-tiff --night \
     --smoke-frames 4 --screenshot ./build/dev/viewer.ppm
 ```
 
@@ -82,12 +95,20 @@ Para comprobarlo contra la biblioteca instalada, sin acceso a cabeceras privadas
 cmake --install build/dev --prefix "$PWD/install"
 cmake -S examples/viewer -B build/consumer -DCMAKE_PREFIX_PATH="$PWD/install"
 cmake --build build/consumer --parallel 2
-./build/consumer/enc-viewer-demo "$PWD/sample-charts" --radar --demo-tiff
+./build/consumer/enc-viewer-demo "$PWD/sample-charts" --contacts --streaming --radar --demo-tiff
+```
+
+El [consumidor avanzado](../examples/advanced/README.md) muestra las nuevas APIs
+en una ventana sin paneles. También admite una comprobación automática:
+
+```sh
+./build/dev/examples/advanced/enc-showcase ./sample-charts \
+    --smoke-frames 4 --screenshot ./build/dev/showcase.ppm
 ```
 
 La colección incluida contiene tres celdas, con 161 capas, 6650 objetos y 155434
-triángulos al aplicar sus actualizaciones. Los fixtures TIFF son pequeños y se
-generan durante las pruebas; no requieren descargas.
+triángulos al aplicar sus actualizaciones en una carga completa. El mosaico y los
+filtros modifican lo visible, no esas cantidades de datos cargados. Los fixtures TIFF son pequeños y se generan durante las pruebas; no requieren descargas.
 
 La matriz de [GitHub Actions](../.github/workflows/ci.yml) reproduce las comprobaciones
 con GCC y Clang. Los artefactos de cada ejecución contienen capturas, paquetes e

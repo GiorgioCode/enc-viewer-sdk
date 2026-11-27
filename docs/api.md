@@ -2,7 +2,7 @@
 
 La cabecera única es [`<enc/enc.h>`](../include/enc/enc.h). Sus componentes públicos
 no incluyen cabeceras de GDAL, OpenGL ni GLFW. Los detalles de implementación no
-se instalan. Esta versión 0.1 es una API inicial: recompilar consumidores contra
+se instalan. Esta versión 0.2 es una API inicial: recompilar consumidores contra
 la misma versión del paquete y su toolchain C++.
 
 ## Catálogo
@@ -56,31 +56,43 @@ llevar ruta vacía. Devolver `false` cancela, incluso antes de la confirmación 
 No se interrumpe una operación GDAL a mitad de celda. Los callbacks son síncronos
 en el hilo llamador; no deben reentrar a la misma instancia.
 
-Una carga confirmada conserva el tema, presentación, TIFF y configuración del
-radar. Reconstruye los ecos simulados para las nuevas cartas; los ecos externos
+Una carga confirmada conserva el tema, presentación, TIFF, contactos y configuración
+del radar. Reconstruye los ecos simulados para las nuevas cartas; los ecos externos
 permanecen bajo control del anfitrión.
+
+`ChartStreamer` ofrece carga por región en un trabajador CPU, con caché LRU y
+confirmación explícita mediante `poll(viewer)`. No requiere contexto gráfico en
+el trabajador y conserva la cámara al confirmar. Ver [carga progresiva](carga-progresiva.md)
+para revisiones, cancelación, presupuesto de memoria y vida del catálogo.
 
 ## Cámara, consulta y selección
 
 | Operación | Contrato |
 | --- | --- |
 | `resize(width, height)` | Dimensiones lógicas del mapa; cero suspende el renderizado, valores negativos se rechazan. |
-| `camera()` / `setCamera(camera)` | Centro WGS84, latitud de referencia y píxeles por grado local. |
+| `camera()` / `setCamera(camera)` | Centro WGS84, latitud de referencia, píxeles por grado proyectado, proyección local/Mercator y giro horario. |
 | `fitCharts()` / `fitWorld()` | Encuadra las ENC o el mundo sin cambiar visibilidad ni datos. |
-| `fitBounds(bounds)` | Encuadra una región válida que no cruce el antimeridiano. |
+| `fitBounds(bounds)` | Encuadra una región válida; `west > east` representa cruce del antimeridiano. |
+| `fitFeatures(ids)` | Encuadra objetos vigentes; rechaza una lista vacía o IDs inválidos. |
+| `viewBounds(margin)` | Envolvente geográfica del mapa lógico, con margen opcional en píxeles. |
+| `rememberView` / `previousView` / `nextView` | Historial explícito de hasta 100 vistas; guardar una vez al comenzar cada gesto. |
 | `zoomAt(point, factor)` | Mantiene fijo el punto geográfico bajo el cursor; factor positivo. |
 | `panBy(dx, dy)` | Desplazamiento del mouse en píxeles lógicos. |
 | `screenToGeo` / `geoToScreen` | Conversión respecto de la cámara y tamaño lógico actuales. |
 | `queryFeatures(region, class, limit)` | Copias de objetos espaciales, incluso ocultos; región inválida o clase vacía omiten ese filtro. |
 | `pick(point)` | Primer objeto visible bajo un punto local; prioriza ayudas, líneas y áreas respetando huecos. |
+| `pickAll(point, tolerance, limit)` | Colección de objetos visibles bajo el cursor, para recorrer alternativas. |
 | `feature(id)` / `select(id)` / `selected()` | Consulta y selección mediante identificadores que incluyen la generación de carga. |
 
 `queryFeatures` limita por defecto a 1000 resultados. `FeatureInfo::position` es
 el primer anclaje puntual disponible; `depth` corresponde a su profundidad Z,
 cuando existe. Las geometrías completas permanecen privadas. Para objetos multipunto
 esta consulta no constituye una exportación de todas sus sondas.
+`description`, `decodedAttributes` y `danger` agregan una descripción de clase,
+valores interpretados de atributos y evaluación básica de peligro, respectivamente.
 
-Un `FeatureId` queda inválido al sustituir o limpiar las ENC. Un `OverlayId`
+Un `FeatureId` queda inválido al sustituir o limpiar las ENC, también después de
+una confirmación progresiva. Un `OverlayId`
 permanece válido hasta retirar esa imagen; no se recicla durante la vida de la
 instancia. Los índices de capa deben actualizarse después de cada carga.
 
@@ -91,8 +103,19 @@ se atenúa al dibujarlo de noche; sus píxeles y posición no cambian. El anfitr
 aplica su propia paleta a sus paneles, como hace el visor de ejemplo.
 
 `Presentation` controla umbrales en metros (`shallowDepth <= safetyDepth <=
-deepDepth`), escala de símbolos entre 0.25 y 4, etiquetas, sondas y sectores.
-No sustituye el cálculo de seguridad ni la presentación condicional de un ECDIS.
+deepDepth`), contorno de seguridad, escala de símbolos entre 0.25 y 4, texto entre
+0.5 y 3, densidad entre 0.1 y 4, etiquetas, sondas y sectores. Incluye mosaico,
+filtros de escala, categorías y calibración física de píxel. `setPresentation`
+valida el conjunto antes de modificar la configuración. `scaleInfo`, `visibleCells`
+y `depthInfo` exponen el estado calculado sin contexto.
+
+`setPortrayalRules(overrides)` parte de las reglas predeterminadas en cada llamada.
+Permite cambiar categoría, prioridad, colores y trazo por clase; un lote inválido
+se rechaza sin alterar las reglas anteriores. `objectClassDescription`,
+`attributeDescription` y `describeAttributes` usan los diccionarios GDAL.
+La [guía de visualización](visualizacion.md) explica mosaico, SCAMIN/SCAMAX,
+profundidades y texto. No sustituye el cálculo de seguridad ni la presentación
+condicional de un ECDIS.
 
 `describeSymbol(class, attributes)` devuelve una interpretación consultable.
 `symbolExamples()` contiene 44 ejemplos. `renderSymbolCatalogue(target)` permite
@@ -141,12 +164,33 @@ El modo `ExternalEchoes` dibuja exclusivamente los retornos recibidos mediante
 | `opacity`, intensidad de eco | 0 a 1. |
 | `gain` | 0 a 10. |
 | `rpm` | 1 a 120 revoluciones por minuto. |
-| `advance(seconds)` | Tiempo transcurrido, finito y no negativo; se limita a 0.25 s por llamada. |
+| `advance(seconds)` | Tiempo finito y no negativo; el paso del PPI se limita a 0.25 s, mientras los contactos reciben el intervalo completo. |
 
-El tiempo avanza sólo con radar visible y sin pausa; `render` no lo modifica.
+El reloj del radar avanza sólo con radar visible y sin pausa; el de contactos
+avanza también con el radar oculto. `render` no modifica ningún reloj.
 Los cambios de origen, alcance o modo limpian los ecos externos y requieren
 reenviar la escena. El muestreo deduplica posiciones próximas y limita a 40000
 ecos. No se implementan adquisición de sensores ni propagación física.
+
+## Contactos múltiples
+
+| Operación | Contrato |
+| --- | --- |
+| `configureContacts(settings)` | Valida visibilidad, vectores, historial, pérdida, capacidad y umbrales; no elimina informes. |
+| `upsertContacts(reports)` | Inserta o actualiza un lote completo por IDs del anfitrión; no retira los ausentes. |
+| `removeContact` / `clearContacts` | Eliminación explícita, independiente de las cartas. |
+| `contacts` / `contact` | Copias del informe y estado evaluado, edad, visibilidad, CPA/TCPA y posiciones pasadas. |
+| `selectContact` / `pickContacts` | Selección y consulta de contactos con IDs independientes de `FeatureId`. |
+| `acknowledgeContact` | Reconoce peligro, pérdida o adquisición presentes; un perdido reconocido deja de dibujarse. |
+| `setOwnShip` | Posición y movimiento propios para cálculo relativo y símbolo del buque. |
+| `contactTime` / `advanceContacts` | Reloj monotónico local en segundos; no duplicar el paso ya entregado a `advance`. |
+| `contactLayerInfo` | Cantidades, capacidad y aviso de proximidad al límite. |
+
+La fuente puede ser AIS, radar rastreado o un contacto asociado por el anfitrión.
+Se representan estados dormido, activado, adquiriendo y perdido según la fuente.
+No se decodifican protocolos ni se adquieren blancos desde el PPI. La
+[guía de contactos](contactos.md) detalla unidades, valores iniciales, relojes,
+filtros, alcance de CPA/TCPA y correspondencia parcial con la referencia OMI.
 
 ## Frontera gráfica
 

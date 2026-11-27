@@ -9,7 +9,7 @@ namespace enc::detail {
 using Dataset = std::unique_ptr<GDALDataset, decltype(&GDALClose)>;
 inline Dataset openCell(const std::filesystem::path& path) {
     const char* drivers[] = {"S57", nullptr};
-    const char* options[] = {"UPDATES=APPLY", nullptr};
+    const char* options[] = {"UPDATES=APPLY", "RECODE_BY_DSSI=ON", nullptr};
     return Dataset(static_cast<GDALDataset*>(GDALOpenEx(path.string().c_str(),
                                                         GDAL_OF_VECTOR | GDAL_OF_READONLY, drivers,
                                                         options, nullptr)),

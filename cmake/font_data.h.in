@@ -1,0 +1,4 @@
+// font_data.h — Atlas RLE de etiquetas incorporado al binario durante la configuración.
+// Recurso derivado de DejaVu Sans; sus avisos se conservan en assets/FONT-LICENSE.txt.
+#pragma once
+inline constexpr unsigned char kEmbeddedFont[] = {@ENC_FONT_BYTES@};

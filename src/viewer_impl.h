@@ -11,7 +11,9 @@ struct Viewer::Impl {
     std::uint32_t generation = 1;
     OverlayId nextOverlay = 1;
     std::thread::id graphicsThread;
+    std::vector<Camera> historyBack, historyForward;
     Impl();
+    void commit(detail::SceneState&& candidate, bool fitView);
     detail::RasterLayer* raster(OverlayId id);
     FeatureInfo describe(std::size_t index) const;
 };

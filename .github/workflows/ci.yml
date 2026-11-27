@@ -43,7 +43,9 @@ jobs:
       - name: Probar CPU, renderizado e integración
         run: ctest --preset ci
       - name: Ejecutar el ejemplo de escritorio
-        run: xvfb-run -a ./build/ci/examples/viewer/enc-viewer-demo ./sample-charts --night --radar --demo-tiff --smoke-frames 4 --screenshot ./build/ci/viewer.ppm
+        run: xvfb-run -a ./build/ci/examples/viewer/enc-viewer-demo ./sample-charts --night --radar --demo-tiff --contacts --streaming --smoke-frames 4 --screenshot ./build/ci/viewer.ppm
+      - name: Ejecutar el consumidor avanzado
+        run: xvfb-run -a ./build/ci/examples/advanced/enc-showcase ./sample-charts --smoke-frames 4 --screenshot ./build/ci/showcase.ppm
       - name: Crear paquete instalable
         run: cpack --config build/ci/CPackConfig.cmake -B build/ci/dist
       - name: Conservar paquetes, capturas e informes
@@ -56,6 +58,7 @@ jobs:
             build/ci/dist/*.sha256
             build/ci/tests/captures/*.ppm
             build/ci/viewer.ppm
+            build/ci/showcase.ppm
             build/ci/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 7

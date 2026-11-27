@@ -4,6 +4,7 @@
 #include "detail/chart_reader.h"
 #include "detail/chart_style.h"
 #include "detail/gdal_support.h"
+#include "detail/mosaic.h"
 #include "detail/picking.h"
 #include "detail/radar_scene.h"
 #include "viewer_impl.h"
@@ -89,8 +90,12 @@ Status Viewer::loadCells(const std::vector<std::filesystem::path>& cells,
                 }
             } else {
                 const auto offset = candidate.layers.size();
+                const auto cellOffset = candidate.cells.size();
+                for (auto& cell : single.cells)
+                    candidate.cells.push_back(std::move(cell));
                 for (auto& feature : single.features) {
                     feature.layer += offset;
+                    feature.cell += cellOffset;
                     candidate.features.push_back(std::move(feature));
                 }
                 for (auto& layer : single.layers)
@@ -120,31 +125,43 @@ Status Viewer::loadCells(const std::vector<std::filesystem::path>& cells,
     if (options.progress && !options.progress({completed, cells.size(), {}}))
         return {ErrorCode::Cancelled, "Carga cancelada antes de confirmar la escena.", {}};
     detail::prepareSymbols(candidate);
-    // Confirma sólo datos ENC. El mapa mundial, presentación, TIFF y contexto siguen en su instancia.
-    auto& scene = impl_->scene;
-    scene.layers = std::move(candidate.layers);
-    scene.features = std::move(candidate.features);
-    scene.indexedCells = std::move(candidate.indexedCells);
-    scene.minLon = candidate.minLon;
-    scene.maxLon = candidate.maxLon;
-    scene.minLat = candidate.minLat;
-    scene.maxLat = candidate.maxLat;
-    scene.hasBounds = true;
-    scene.selected = -1;
-    if (++impl_->generation == 0)
-        ++impl_->generation;
-    if (options.fitView)
-        detail::fitChart(scene);
-    if (scene.radar.initialized && !scene.radar.external)
-        detail::buildRadarScene(scene);
-    status.message = std::to_string(scene.indexedCells.size()) + " celdas cargadas.";
+    candidate.spatial.rebuild(candidate.features);
+    impl_->commit(std::move(candidate), options.fitView);
+    status.message = std::to_string(impl_->scene.indexedCells.size()) + " celdas cargadas.";
     return status;
 }
+void Viewer::Impl::commit(detail::SceneState&& candidate, bool fitView) {
+    // Sólo transfiere datos ENC; cámara, estilos y capas externas conservan su propietario.
+    auto& s = scene;
+    s.layers = std::move(candidate.layers);
+    s.features = std::move(candidate.features);
+    s.cells = std::move(candidate.cells);
+    s.mosaicCache.reset();
+    s.spatial = std::move(candidate.spatial);
+    s.indexedCells = std::move(candidate.indexedCells);
+    s.minLon = candidate.minLon;
+    s.maxLon = candidate.maxLon;
+    s.minLat = candidate.minLat;
+    s.maxLat = candidate.maxLat;
+    s.hasBounds = candidate.hasBounds;
+    s.selected = -1;
+    s.labelPositions.clear();
+    if (++generation == 0)
+        ++generation;
+    if (fitView)
+        detail::fitChart(s);
+    if (s.radar.initialized && !s.radar.external)
+        detail::buildRadarScene(s);
+}
+
 void Viewer::clearCharts() {
     auto& scene = impl_->scene;
     scene.layers.clear();
     scene.features.clear();
     scene.indexedCells.clear();
+    scene.cells.clear();
+    scene.mosaicCache.reset();
+    scene.spatial.rebuild(scene.features);
     scene.hasBounds = false;
     scene.selected = -1;
     if (++impl_->generation == 0)
@@ -201,9 +218,16 @@ Status Viewer::setPresentation(const Presentation& p) {
     if (!detail::finite(p.shallowDepth) || !detail::finite(p.safetyDepth) ||
         !detail::finite(p.deepDepth) || p.shallowDepth < 0 || p.shallowDepth > p.safetyDepth ||
         p.safetyDepth > p.deepDepth || !detail::finite(p.symbolScale) || p.symbolScale < .25 ||
-        p.symbolScale > 4)
-        return detail::invalid(
-            "Profundidades crecientes >=0 y escala de símbolo entre 0.25 y 4 requeridas.");
+        p.symbolScale > 4 || !detail::finite(p.textScale) || p.textScale < .5 || p.textScale > 3 ||
+        !detail::finite(p.labelDensity) || p.labelDensity < .1 || p.labelDensity > 4 ||
+        !detail::finite(p.safetyContour) || p.safetyContour < 0 ||
+        !detail::finite(p.millimetresPerPixel) || p.millimetresPerPixel < .01 ||
+        p.millimetresPerPixel > 10 || !detail::finite(p.detailThreshold) || p.detailThreshold < 1 ||
+        p.detailThreshold > 100 ||
+        (p.displayMode != DisplayMode::Base && p.displayMode != DisplayMode::Standard &&
+         p.displayMode != DisplayMode::All))
+        return detail::invalid("Presentación inválida: revisar profundidades, escalas, densidad y "
+                               "calibración de píxeles.");
     impl_->scene.presentation = p;
     return {};
 }
@@ -220,9 +244,15 @@ Status Viewer::resize(int width, int height) {
 Status Viewer::setCamera(const Camera& camera) {
     if (!detail::validGeo(camera.center) || !detail::finite(camera.referenceLatitude) ||
         std::abs(camera.referenceLatitude) > 80 || !detail::finite(camera.pixelsPerDegree) ||
-        camera.pixelsPerDegree < .00001 || camera.pixelsPerDegree > 1e7)
+        camera.pixelsPerDegree < .00001 || camera.pixelsPerDegree > 1e7 ||
+        !detail::finite(camera.rotationDegrees) ||
+        (camera.projection != Projection::Mercator &&
+         camera.projection != Projection::LocalEquirectangular) ||
+        (camera.projection == Projection::Mercator && std::abs(camera.center.lat) > 85.05112878))
         return detail::invalid("Cámara fuera de los límites geográficos o de escala.");
     auto& s = impl_->scene;
+    s.projection = camera.projection;
+    s.rotation = std::remainder(camera.rotationDegrees, 360.);
     s.referenceLatitude = camera.referenceLatitude;
     s.centerX = camera.center.lon * detail::lonScale(s);
     s.centerLat = camera.center.lat;
@@ -231,7 +261,11 @@ Status Viewer::setCamera(const Camera& camera) {
 }
 Camera Viewer::camera() const {
     const auto& s = impl_->scene;
-    return {{s.centerX / detail::lonScale(s), s.centerLat}, s.referenceLatitude, s.zoom};
+    return {{detail::wrapLongitude(s.centerX / detail::lonScale(s)), s.centerLat},
+            s.referenceLatitude,
+            s.zoom,
+            s.projection,
+            s.rotation};
 }
 bool Viewer::fitCharts() {
     return detail::fitChart(impl_->scene);
@@ -241,19 +275,12 @@ void Viewer::fitWorld() {
 }
 Status Viewer::fitBounds(const Bounds& b) {
     if (!b.valid || !detail::validGeo({b.west, b.south}) || !detail::validGeo({b.east, b.north}) ||
-        b.west > b.east || b.south > b.north)
-        return detail::invalid(
-            "Extensión WGS84 inválida; dividir geometrías que cruzan el antimeridiano.");
-    auto& s = impl_->scene;
-    s.referenceLatitude = std::clamp((b.south + b.north) * .5, -80.0, 80.0);
-    s.centerX = (b.west + b.east) * .5 * detail::lonScale(s);
-    s.centerLat = (b.south + b.north) * .5;
-    s.zoom = std::clamp(std::min(s.width / std::max(1e-8, (b.east - b.west) * detail::lonScale(s)),
-                                 s.height / std::max(1e-8, b.north - b.south)) *
-                            .88,
-                        .00001, 1e7);
+        b.south > b.north)
+        return detail::invalid("Extensión WGS84 inválida.");
+    detail::fitRegion(impl_->scene, b);
     return {};
 }
+
 Status Viewer::zoomAt(ScreenPoint cursor, double factor) {
     if (!detail::finite(cursor.x) || !detail::finite(cursor.y) || !detail::finite(factor) ||
         factor <= 0)
@@ -281,12 +308,16 @@ FeatureInfo Viewer::Impl::describe(std::size_t index) const {
     result.id = (static_cast<FeatureId>(generation) << 32) | (index + 1);
     result.layer = f.layer;
     result.objectClass = scene.layers[f.layer].objectClass;
-    result.bounds = {f.minX, f.minY, f.maxX, f.maxY, true};
+    result.bounds = {detail::wrapLongitude(f.minX), f.minY, detail::wrapLongitude(f.maxX), f.maxY,
+                     true};
     for (const auto& a : f.attributes)
         result.attributes.push_back({a.name, a.value});
     result.symbol = describeSymbol(result.objectClass, result.attributes);
+    result.description = objectClassDescription(result.objectClass);
+    result.decodedAttributes = describeAttributes(result.attributes);
+    result.danger = detail::dangerous(scene, f);
     if (!f.points.empty()) {
-        result.position = GeoPoint{f.points.front().x, f.points.front().y};
+        result.position = GeoPoint{detail::wrapLongitude(f.points.front().x), f.points.front().y};
         if (std::isfinite(f.points.front().depth))
             result.depth = f.points.front().depth;
     }
@@ -296,7 +327,9 @@ std::vector<FeatureInfo> Viewer::queryFeatures(const Bounds& region, const std::
                                                std::size_t limit) const {
     std::vector<FeatureInfo> result;
     const auto& scene = impl_->scene;
-    for (std::size_t i = 0; i < scene.features.size() && result.size() < limit; ++i) {
+    for (auto i : scene.spatial.query(region)) {
+        if (result.size() >= limit)
+            break;
         const auto& f = scene.features[i];
         if (f.points.empty() && f.lines.empty() && f.polygons.empty())
             continue;
@@ -317,6 +350,21 @@ std::optional<FeatureInfo> Viewer::pick(ScreenPoint point) const {
     if (index < 0)
         return {};
     return impl_->describe(static_cast<std::size_t>(index));
+}
+std::vector<FeatureInfo> Viewer::pickAll(ScreenPoint point, double tolerance,
+                                         std::size_t limit) const {
+    std::vector<FeatureInfo> out;
+    const auto& s = impl_->scene;
+    if (!detail::finite(point.x) || !detail::finite(point.y) || !detail::finite(tolerance) ||
+        tolerance < 0 || tolerance > 100 || point.x < 0 || point.y < 0 || point.x >= s.width ||
+        point.y >= s.height)
+        return out;
+    for (auto i : detail::hitTests(s, point.x, point.y, tolerance)) {
+        if (out.size() >= limit)
+            break;
+        out.push_back(impl_->describe(i));
+    }
+    return out;
 }
 std::optional<FeatureInfo> Viewer::feature(FeatureId id) const {
     const auto index = static_cast<std::uint32_t>(id);

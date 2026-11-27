@@ -1,6 +1,7 @@
 // app.h — Estado y contratos de la aplicación consumidora de enc::viewer.
 // La ventana, los diálogos, controles y callbacks están aquí, fuera de la biblioteca reutilizable.
 #pragma once
+#include "../common/contact_scenario.h"
 #include <GLFW/glfw3.h>
 #include <enc/enc.h>
 #include <optional>
@@ -46,6 +47,14 @@ struct App {
     GLFWwindow* window = nullptr;
     enc::Viewer viewer;
     enc::Catalog catalog;
+    bool progressive = false, simulateContacts = false;
+    std::unique_ptr<enc::ChartStreamer> streamer;
+    std::uint64_t streamReportedRevision = 0;
+    std::optional<enc::Camera> streamView;
+    int streamWidth = 0, streamHeight = 0;
+    double cameraStableSince = 0;
+    enc_examples::ContactScenario contactScenario;
+    std::optional<enc::ContactId> selectedContactId;
     int width = 1280, height = 800, frameWidth = 1280, frameHeight = 800;
     int layerScroll = 0, attributeScroll = 0;
     double mouseX = 0, mouseY = 0, startX = 0, startY = 0;
@@ -70,6 +79,9 @@ struct App {
         return {x, y - toolbar};
     }
     void report(const enc::Status& status);
+    void updateStreaming();
+    void createDemoContacts();
+    void updateDemoContacts();
     void loadCharts(const std::filesystem::path& source);
     void openImage(const std::filesystem::path& source);
     void demoImage();

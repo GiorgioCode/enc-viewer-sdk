@@ -44,8 +44,8 @@ no modifica bibliotecas del sistema. El formato utiliza clang-format 18.
 de versión. CMake genera `<enc/version.h>` y `enc::version()` usa esa definición.
 Actualizar el [registro de cambios](../CHANGELOG.md) al cambiar de versión.
 
-Durante la serie `0.x`, `find_package(EncSDK 0.1 REQUIRED CONFIG)` acepta versiones
-de la misma serie menor, por ejemplo `0.1.1`, pero no `0.2.0`. Esto describe la
+Durante la serie `0.x`, `find_package(EncSDK 0.2 REQUIRED CONFIG)` acepta versiones
+de la misma serie menor, por ejemplo `0.2.1`, pero no `0.3.0`. Esto describe la
 selección del paquete; no promete ABI estable entre compiladores, dependencias o
 versiones. Recompilar el anfitrión con una configuración compatible.
 
@@ -63,7 +63,7 @@ cpack --config build/library/CPackSourceConfig.cmake -B build/library/dist
 CPack genera archivos `.tar.gz` y sus sumas SHA-256 para comprobar integridad.
 
 El paquete binario contiene la biblioteca, cabeceras, configuración CMake y avisos
-MIT/terceros; no incluye dependencias del sistema ni cartas de prueba. La
+MIT/terceros y la licencia del atlas de texto; no incluye dependencias del sistema ni cartas de prueba. La
 [guía instalada](paquete-instalado.md) explica su consumo. Debe identificarse el
 sistema, arquitectura y toolchain con que se construyó antes de compartirlo.
 
@@ -75,3 +75,17 @@ Para preparar una publicación: ejecutar la validación completa, revisar los av
 de los datos, confirmar la versión y su registro de cambios y verificar ambos
 paquetes. Etiquetas y publicaciones se realizan explícitamente por los mantenedores;
 el workflow no publica versiones automáticamente.
+
+## Recursos incorporados
+
+El mundo y el atlas se convierten en cabeceras privadas durante CMake. La
+aplicación no requiere rutas al checkout para utilizarlos. Para modificar el
+repertorio de texto, ver [`generate_text_atlas.py`](../tools/generate_text_atlas.py)
+y la [procedencia de recursos](../assets/README.md). Regenerar el atlas requiere
+Pillow con soporte FreeType y la fuente original; esas dependencias no pertenecen a la biblioteca en
+ejecución. Conservar siempre [`FONT-LICENSE.txt`](../assets/FONT-LICENSE.txt).
+
+Los cambios a mosaico, presentación o contactos deben acompañarse de contratos
+actualizados y verificaciones CPU/gráficas pertinentes. La trazabilidad normativa
+de [contactos](contactos.md) describe el subconjunto implementado; no ampliarla
+sólo por semejanza de una captura.

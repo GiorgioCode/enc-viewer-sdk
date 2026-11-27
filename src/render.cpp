@@ -2,6 +2,7 @@
 // Dibuja en el framebuffer activo y una región física explícita; no crea contexto ni presenta buffers.
 #define GL_GLEXT_PROTOTYPES
 #include "detail/chart_renderer.h"
+#include "detail/contact_renderer.h"
 #include "detail/display_theme.h"
 #include "detail/gdal_support.h"
 #include "detail/overlay_renderer.h"
@@ -175,6 +176,9 @@ Status Viewer::render(const RenderTarget& target) {
     beginFrame(s, target);
     detail::drawChart(s);
     detail::drawOverlays(s);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(target.x, target.y, target.width, target.height);
+    detail::drawContacts(s);
     return {};
 }
 Status Viewer::renderSymbolCatalogue(const RenderTarget& target) {
@@ -225,6 +229,7 @@ Status Viewer::releaseGraphicsResources() {
         return {ErrorCode::Graphics, "Liberar recursos en el hilo que los creó.", {}};
     for (auto& layer : s.rasters)
         layer.image.texture.reset();
+    s.fontAtlas.texture.reset();
     s.gpu->release();
     impl_->graphicsThread = {};
     return {};

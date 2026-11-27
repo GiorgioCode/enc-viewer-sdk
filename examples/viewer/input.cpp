@@ -79,6 +79,79 @@ void key(GLFWwindow* window, int key, int, int action, int mods) {
         else
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         break;
+    case GLFW_KEY_Q:
+    case GLFW_KEY_E: {
+        a.viewer.rememberView();
+        auto camera = a.viewer.camera();
+        camera.rotationDegrees += key == GLFW_KEY_Q ? -15 : 15;
+        a.report(a.viewer.setCamera(camera));
+        break;
+    }
+    case GLFW_KEY_M: {
+        a.viewer.rememberView();
+        auto camera = a.viewer.camera();
+        camera.projection = camera.projection == enc::Projection::Mercator
+                                ? enc::Projection::LocalEquirectangular
+                                : enc::Projection::Mercator;
+        a.report(a.viewer.setCamera(camera));
+        break;
+    }
+    case GLFW_KEY_H:
+        a.viewer.previousView();
+        break;
+    case GLFW_KEY_Y:
+        a.viewer.nextView();
+        break;
+    case GLFW_KEY_D: {
+        auto p = a.viewer.presentation();
+        p.displayMode = p.displayMode == enc::DisplayMode::All    ? enc::DisplayMode::Base
+                        : p.displayMode == enc::DisplayMode::Base ? enc::DisplayMode::Standard
+                                                                  : enc::DisplayMode::All;
+        a.report(a.viewer.setPresentation(p));
+        break;
+    }
+    case GLFW_KEY_B: {
+        auto settings = a.viewer.contactSettings();
+        settings.visible = !settings.visible;
+        a.report(a.viewer.configureContacts(settings));
+        break;
+    }
+    case GLFW_KEY_S: {
+        auto settings = a.viewer.contactSettings();
+        settings.showSleeping = !settings.showSleeping;
+        a.report(a.viewer.configureContacts(settings));
+        break;
+    }
+    case GLFW_KEY_U: {
+        auto settings = a.viewer.contactSettings();
+        settings.vectors = settings.vectors == enc::VectorMode::True ? enc::VectorMode::Relative
+                                                                     : enc::VectorMode::True;
+        a.report(a.viewer.configureContacts(settings));
+        break;
+    }
+    case GLFW_KEY_A: {
+        auto settings = a.viewer.contactSettings();
+        settings.associatedAsAIS = !settings.associatedAsAIS;
+        a.report(a.viewer.configureContacts(settings));
+        break;
+    }
+    case GLFW_KEY_G:
+        if (a.selectedContactId)
+            a.report(a.viewer.acknowledgeContact(*a.selectedContactId));
+        break;
+    case GLFW_KEY_F8:
+    case GLFW_KEY_F9: {
+        auto p = a.viewer.presentation();
+        p.textScale = std::clamp(p.textScale + (key == GLFW_KEY_F9 ? .1 : -.1), .5, 3.);
+        a.report(a.viewer.setPresentation(p));
+        break;
+    }
+    case GLFW_KEY_F6: {
+        auto p = a.viewer.presentation();
+        p.preferNationalNames = !p.preferNationalNames;
+        a.report(a.viewer.setPresentation(p));
+        break;
+    }
     case GLFW_KEY_O:
         a.action(Action::Open);
         a.suppressCharacter = !(mods & (GLFW_MOD_CONTROL | GLFW_MOD_ALT | GLFW_MOD_SUPER));
@@ -171,6 +244,7 @@ void mouse(GLFWwindow* window, int button, int action, int mods) {
             a.placingRadar = false;
             return;
         }
+        a.viewer.rememberView();
         a.mouseDown = a.dragging = true;
         a.moved = false;
         a.startX = a.mouseX;
@@ -179,9 +253,33 @@ void mouse(GLFWwindow* window, int button, int action, int mods) {
         a.editingImage = (mods & GLFW_MOD_SHIFT) && image && image->visible;
     } else if (action == GLFW_RELEASE) {
         if (a.mouseDown && !a.moved && !a.editingImage && a.onMap(a.mouseX, a.mouseY)) {
-            const auto picked = a.viewer.pick(a.mapPoint(a.mouseX, a.mouseY));
-            a.report(
-                a.viewer.select(picked ? std::optional<enc::FeatureId>(picked->id) : std::nullopt));
+            const auto position = a.mapPoint(a.mouseX, a.mouseY);
+            const auto contacts = a.viewer.pickContacts(position);
+            if (!contacts.empty() && !(mods & GLFW_MOD_CONTROL)) {
+                a.selectedContactId = contacts.front().report.id;
+                a.report(a.viewer.selectContact(a.selectedContactId));
+                a.viewer.select(std::nullopt);
+            } else {
+                a.selectedContactId.reset();
+                a.viewer.selectContact(std::nullopt);
+                const auto hits = a.viewer.pickAll(position);
+                std::optional<enc::FeatureId> id;
+                if (!hits.empty()) {
+                    std::size_t index = 0;
+                    if ((mods & GLFW_MOD_CONTROL) && a.viewer.selected()) {
+                        const auto selected = a.viewer.selected()->id;
+                        const auto current =
+                            std::find_if(hits.begin(), hits.end(),
+                                         [&](const auto& f) { return f.id == selected; });
+                        if (current != hits.end())
+                            index = (std::distance(hits.begin(), current) + 1) % hits.size();
+                    }
+                    id = hits[index].id;
+                    a.status = std::to_string(index + 1) + " / " + std::to_string(hits.size()) +
+                               " OBJETOS";
+                }
+                a.report(a.viewer.select(id));
+            }
             a.attributeScroll = 0;
         }
         a.mouseDown = a.dragging = a.editingImage = false;
@@ -207,8 +305,10 @@ void scroll(GLFWwindow* window, double, double y) {
         a.report(a.viewer.scaleRasterAt(*a.activeImage,
                                         a.viewer.screenToGeo(a.mapPoint(a.mouseX, a.mouseY)),
                                         std::pow(1.15, y)));
-    else
+    else {
+        a.viewer.rememberView();
         a.report(a.viewer.zoomAt(a.mapPoint(a.mouseX, a.mouseY), std::pow(1.2, y)));
+    }
 }
 void drop(GLFWwindow* window, int count, const char** paths) {
     auto& a = state(window);

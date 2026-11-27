@@ -22,6 +22,7 @@ struct ScreenPoint {
 struct Bounds {
     double west = 0, south = 0, east = 0, north = 0;
     bool valid = false;
+    // west > east representa una región que cruza el antimeridiano.
     bool intersects(const Bounds& other) const;
 };
 
@@ -72,15 +73,26 @@ struct Attribute {
 enum class Theme { Day, Night };
 
 // Profundidades en metros, símbolos en píxeles lógicos. No es una presentación S-52 certificada.
+enum class Projection { LocalEquirectangular, Mercator };
+enum class DisplayMode { Base, Standard, All };
 struct Presentation {
     double shallowDepth = 2, safetyDepth = 5, deepDepth = 10;
     double symbolScale = 1;
     bool showLabels = true, showSoundings = true, showLightSectors = true;
+    double safetyContour =
+        5; // Se utiliza el contorno disponible igual o inmediatamente más profundo.
+    double textScale = 1, labelDensity = 1, millimetresPerPixel = 0.2645833333;
+    bool preferNationalNames = false, respectScale = true, automaticMosaic = true;
+    bool showScaleBar = true, showOverscale = true;
+    double detailThreshold = 8; // Relación máxima denominador visible / escala de compilación.
+    DisplayMode displayMode = DisplayMode::All;
 };
 struct Camera {
     GeoPoint center;
     double referenceLatitude = 0;
     double pixelsPerDegree = 100;
+    Projection projection = Projection::LocalEquirectangular;
+    double rotationDegrees = 0; // Giro horario del mapa en pantalla.
 };
 
 // Región física del framebuffer ACTUAL. El origen x/y de OpenGL está abajo a la izquierda.

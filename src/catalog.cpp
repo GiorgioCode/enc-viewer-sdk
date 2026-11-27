@@ -3,8 +3,10 @@
 #include "detail/gdal_support.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cpl_json.h>
 #include <enc/catalog.h>
+#include <functional>
 #include <ogrsf_frmts.h>
 #include <set>
 
@@ -75,8 +77,48 @@ void inspectMetadata(CellInfo& cell, std::vector<Diagnostic>& diagnostics) {
         }
         if (auto* coverage = dataset->GetLayerByName("M_COVR")) {
             OGREnvelope bounds;
-            if (coverage->GetExtent(&bounds, TRUE) == OGRERR_NONE)
-                cell.bounds = {bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY, true};
+            if (coverage->GetExtent(&bounds, TRUE) == OGRERR_NONE) {
+                std::vector<double> longitudes;
+                std::function<void(const OGRGeometry*)> collect = [&](const OGRGeometry* g) {
+                    if (!g)
+                        return;
+                    const auto type = wkbFlatten(g->getGeometryType());
+                    if (type == wkbLineString || type == wkbLinearRing) {
+                        const auto* line = g->toLineString();
+                        for (int i = 0; i < line->getNumPoints(); ++i)
+                            longitudes.push_back(std::remainder(line->getX(i), 360.) + 180);
+                    } else if (type == wkbPolygon) {
+                        const auto* polygon = g->toPolygon();
+                        collect(polygon->getExteriorRing());
+                    } else if (OGR_GT_IsSubClassOf(type, wkbGeometryCollection)) {
+                        const auto* group = g->toGeometryCollection();
+                        for (int i = 0; i < group->getNumGeometries(); ++i)
+                            collect(group->getGeometryRef(i));
+                    }
+                };
+                coverage->ResetReading();
+                while (auto* raw = coverage->GetNextFeature()) {
+                    std::unique_ptr<OGRFeature, decltype(&OGRFeature::DestroyFeature)> f(
+                        raw, OGRFeature::DestroyFeature);
+                    if (f->GetFieldAsInteger("CATCOV") == 1)
+                        collect(f->GetGeometryRef());
+                }
+                double west = bounds.MinX, east = bounds.MaxX;
+                if (!longitudes.empty()) {
+                    std::sort(longitudes.begin(), longitudes.end());
+                    double gap = -1;
+                    for (std::size_t i = 0; i < longitudes.size(); ++i) {
+                        const double next =
+                            i + 1 < longitudes.size() ? longitudes[i + 1] : longitudes[0] + 360;
+                        if (next - longitudes[i] > gap) {
+                            gap = next - longitudes[i];
+                            west = std::fmod(next, 360.) - 180;
+                            east = longitudes[i] - 180;
+                        }
+                    }
+                }
+                cell.bounds = {west, bounds.MinY, east, bounds.MaxY, true};
+            }
         }
     } else
         diagnostics.push_back({Severity::Error, cell.path, "No se pudo leer la celda S-57."});

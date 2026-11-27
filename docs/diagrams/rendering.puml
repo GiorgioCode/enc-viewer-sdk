@@ -20,14 +20,22 @@ endif
 :Conservar estado OpenGL y matrices;
 :Aplicar paleta diurna o nocturna;
 :Recoger texturas retiradas y configurar viewport;
+:Aplicar proyección local/Mercator y rotación;
 :Dibujar fondo mundial;
 if (¿ENC visibles?) then (sí)
-  if (¿Escala general?) then (sí)
-    :Dibujar cobertura;
-  else (no)
-    :Dibujar superficies y líneas;
-    :Dibujar sectores, símbolos y etiquetas;
-  endif
+  :Elegir celdas por vista y escala;
+  :Construir mosaico con coberturas y exclusiones;
+  :Aplicar categorías, SCAMIN/SCAMAX y reglas;
+  :Dibujar áreas, contornos de seguridad y líneas;
+  :Dibujar sectores, sondas, símbolos y peligros;
+  :Distribuir y dibujar etiquetas UTF-8;
+  :Dibujar escala gráfica y aviso de sobreescala;
+endif
+if (¿Contactos visibles?) then (sí)
+  :Evaluar edad, filtros y estados AIS/radar;
+  :Dibujar buque propio y símbolos de contactos;
+  :Agregar vectores, posiciones pasadas y selección;
+  :Indicar modos, prueba y capacidad;
 endif
 while (¿Quedan imágenes?) is (sí)
   if (¿Visible?) then (sí)

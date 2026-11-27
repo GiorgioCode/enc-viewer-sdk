@@ -1,7 +1,7 @@
 # Informar problemas de seguridad
 
 Esta biblioteca procesa archivos ENC y TIFF mediante GDAL y dibuja sobre un contexto
-OpenGL proporcionado por la aplicación. La versión 0.1 es experimental.
+OpenGL proporcionado por la aplicación. La versión 0.2 es experimental.
 
 Para una vulnerabilidad, utilizar la opción de reporte privado de la pestaña
 **Security** del repositorio si está habilitada. Si no está disponible, abrir una

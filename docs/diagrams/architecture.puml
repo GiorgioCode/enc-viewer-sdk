@@ -1,5 +1,5 @@
 ' architecture.puml — Responsabilidades públicas, privadas y de la aplicación anfitriona.
-' Fuente editable del gráfico de arquitectura del SDK independiente.
+' Fuente editable del gráfico de arquitectura de la biblioteca y sus consumidores.
 @startuml
 title ENC SDK — integración en otro proyecto
 left to right direction
@@ -12,25 +12,39 @@ package "Aplicación anfitriona" {
 package "API pública · include/enc" {
   component "Catalog\nÍndice y consultas" as catalog
   component "Viewer\nEscena, cámara y capas" as viewer
+  component "ChartStreamer\nRegiones y caché CPU" as streamer
+  component "Contact / OwnShip\nInformes y estado relativo" as contacts
+  component "Portrayal\nReglas y diccionarios" as portrayal
   component "Symbols / tipos\nDescriptores y diagnósticos" as types
 }
 package "Implementación privada · src" {
   component "Lectura y geometría" as data
   component "Estilo y símbolos" as symbols
+  component "Mosaico y etiquetas" as mosaic
+  component "Estado y símbolos de contactos" as tracking
   component "GeoTIFF y radar" as overlays
   component "Renderizador\nGuarda y restaura estado GL" as renderer
   component "Mundo incorporado" as world
 }
-component "GDAL / S57 / reproyección" as gdal
+component "GDAL / S57 / GEOS / reproyección" as gdal
 component "OpenGL compatibilidad / GLU" as gl
 ui --> catalog
 ui --> viewer
+ui --> streamer
+ui --> contacts : sensores del anfitrión
+streamer --> viewer : poll / confirmar revisión
+streamer --> catalog : copia de instantánea
+streamer --> data : trabajador CPU
+viewer --> contacts
+viewer --> portrayal
 host --> viewer : contexto vigente / región
 viewer --> types
 catalog --> types
 catalog --> gdal
 viewer --> data
 viewer --> symbols
+viewer --> mosaic
+viewer --> tracking
 viewer --> overlays
 viewer --> renderer
 data --> gdal
@@ -40,6 +54,8 @@ overlays --> gdal : TIFF
 renderer --> gl
 renderer --> symbols
 renderer --> overlays
+renderer --> mosaic
+renderer --> tracking
 note bottom of viewer
   La biblioteca no crea ventanas ni usa GLFW.
   El ejemplo GLFW consume esta misma API.

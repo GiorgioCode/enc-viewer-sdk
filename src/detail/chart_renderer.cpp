@@ -5,7 +5,9 @@
 #include "chart_renderer.h"
 #include "camera.h"
 #include "chart_style.h"
+#include "mosaic.h"
 #include "render_primitives.h"
+#include "text_renderer.h"
 #include <GL/gl.h>
 #include <algorithm>
 #include <array>
@@ -32,49 +34,113 @@ class LabelLayout {
     std::vector<LabelBox> occupied;
 
   public:
-    // Reserva el cuerpo del símbolo antes de intentar ubicar etiquetas alrededor.
     void reserve(LabelBox box) {
         occupied.push_back(box);
     }
-    // Rechaza etiquetas fuera del mapa o superpuestas a regiones ya ocupadas.
-    bool add(const SceneState& app, double x, double y, std::string text, unsigned color,
-             int maxWidth = 180) {
-        if (text.empty())
+    bool add(SceneState& app, double x, double y, std::string text, unsigned color,
+             int maxWidth = 180, std::uint64_t key = 0, bool selected = false) {
+        if (text.empty() ||
+            (!selected &&
+             labels.size() >= std::size_t(std::max(1., app.width * app.height / 9000. *
+                                                           app.presentation.labelDensity))))
             return false;
-        const int width = std::min(static_cast<int>(text.size()) * 6, maxWidth);
-        if (width <= 0 || x < 4 || x + width > app.width - kSidebarWidth - 4 ||
-            y < kToolbarHeight + 4 || y + 9 > app.height - kStatusHeight - 4)
-            return false;
-        const LabelBox box{x - 2, y - 2, static_cast<double>(width + 4), 11};
-        for (const auto& other : occupied)
-            if (box.x < other.x + other.w && box.x + box.w > other.x && box.y < other.y + other.h &&
-                box.y + box.h > other.y)
-                return false;
-        occupied.push_back(box);
-        labels.push_back({{x, y, static_cast<double>(width), 7}, std::move(text), color});
-        return true;
+        const double scale = app.presentation.textScale;
+        const double width = textWidth(text, scale);
+        if (width > maxWidth * scale)
+            return false; // Nunca cortar una secuencia UTF-8 por bytes.
+        const double height = 24 * scale;
+        const std::array<ScreenPoint, 6> offsets{{{0, 0},
+                                                  {-width - 24, 0},
+                                                  {0, 18},
+                                                  {-width - 24, 18},
+                                                  {-width * .5 - 12, -24},
+                                                  {-width * .5 - 12, 30}}};
+        const auto old = app.labelPositions.find(key);
+        const int preferred = old == app.labelPositions.end() ? 0 : old->second;
+        for (int attempt = 0; attempt < 6; ++attempt) {
+            const int index =
+                attempt == 0 ? preferred : (attempt <= preferred ? attempt - 1 : attempt);
+            const auto offset = offsets[index];
+            const double padding = 2 / app.presentation.labelDensity;
+            LabelBox box{x + offset.x - padding, y + offset.y - padding, width + 2 * padding,
+                         height + 2 * padding};
+            if (box.x < 4 || box.y < 4 || box.x + box.w > app.width - 4 ||
+                box.y + box.h > app.height - 4)
+                continue;
+            bool collision = false;
+            for (const auto& other : occupied)
+                collision |= box.x < other.x + other.w && box.x + box.w > other.x &&
+                             box.y < other.y + other.h && box.y + box.h > other.y;
+            if (collision)
+                continue;
+            occupied.push_back(box);
+            app.labelPositions[key] = index;
+            labels.push_back({{x + offset.x, y + offset.y, width, height}, std::move(text), color});
+            return true;
+        }
+        return false;
     }
-    // Dibuja al final para que los símbolos posteriores no tapen los nombres aceptados.
-    void draw() const {
+    void draw(SceneState& app) const {
         for (const auto& label : labels) {
-            // Un fondo discreto mantiene legible el texto sobre líneas y profundidades.
-            rect(label.box.x - 1, label.box.y - 1, label.box.w + 1, 9, 0xF6F5E9);
-            drawText(label.box.x, label.box.y, label.text, label.color,
-                     static_cast<int>(label.box.w));
+            rect(label.box.x - 1, label.box.y, label.box.w + 2, label.box.h, 0xF6F5E9);
+            drawLabelText(app, label.box.x, label.box.y, label.text, label.color,
+                          app.presentation.textScale);
         }
     }
 };
 
-// Pinta los triángulos ya calculados de una superficie geográfica.
-void paintArea(const SceneState& app, const Feature& feature, unsigned color) {
-    setHex(color);
-    glBegin(GL_TRIANGLES);
-    for (const auto& polygon : feature.polygons)
-        for (Point p : polygon.triangles) {
-            p = toScreen(app, p);
+// Proyecta cada contorno en una rama continua y repite sólo las copias mundiales que llegan a la vista.
+std::vector<int> worldCopies(const SceneState& app, const std::vector<Point>& points) {
+    std::vector<int> result;
+    if (points.empty())
+        return result;
+    double x1 = points[0].x, x2 = x1, y1 = points[0].y, y2 = y1;
+    for (auto p : points) {
+        x1 = std::min(x1, p.x);
+        x2 = std::max(x2, p.x);
+        y1 = std::min(y1, p.y);
+        y2 = std::max(y2, p.y);
+    }
+    for (int copy : {-1, 0, 1}) {
+        double lo = 1e30, hi = -1e30, top = 1e30, bottom = -1e30;
+        for (auto p : std::array<Point, 4>{{{x1, y1}, {x2, y1}, {x2, y2}, {x1, y2}}}) {
+            p = toScreenContinuous(app, p, points[0].x, copy);
+            lo = std::min(lo, p.x);
+            hi = std::max(hi, p.x);
+            top = std::min(top, p.y);
+            bottom = std::max(bottom, p.y);
+        }
+        if (hi >= -50 && lo <= app.width + 50 && bottom >= -50 && top <= app.height + 50)
+            result.push_back(copy);
+    }
+    return result;
+}
+void drawGeoPath(const SceneState& app, const std::vector<Point>& points, GLenum primitive) {
+    for (auto copy : worldCopies(app, points)) {
+        glBegin(primitive);
+        for (auto p : points) {
+            p = toScreenContinuous(app, p, points.front().x, copy);
             glVertex2d(p.x, p.y);
         }
-    glEnd();
+        glEnd();
+    }
+}
+// Usa el mismo anclaje para todos los triángulos: evita franjas que crucen el mapa en ±180°.
+void paintArea(const SceneState& app, const Feature& feature, unsigned color) {
+    setHex(color);
+    for (const auto& polygon : feature.polygons) {
+        if (polygon.triangles.empty())
+            continue;
+        const auto& outline = polygon.rings.empty() ? polygon.triangles : polygon.rings.front();
+        for (auto copy : worldCopies(app, outline)) {
+            glBegin(GL_TRIANGLES);
+            for (auto p : polygon.triangles) {
+                p = toScreenContinuous(app, p, outline.front().x, copy);
+                glVertex2d(p.x, p.y);
+            }
+            glEnd();
+        }
+    }
 }
 
 // Dibuja siempre el fondo mundial y agrega una retícula sólo en escalas generales.
@@ -84,21 +150,14 @@ void drawBasemap(const SceneState& app) {
         const int step = app.zoom < 12 ? 30 : app.zoom < 40 ? 10 : 1;
         setHex(0xACCBD4);
         glLineWidth(1);
-        glBegin(GL_LINES);
-        for (int lon = -180; lon <= 180; lon += step) {
-            const Point a = toScreen(app, {static_cast<double>(lon), -90}),
-                        b = toScreen(app, {static_cast<double>(lon), 90});
-            glVertex2d(a.x, a.y);
-            glVertex2d(b.x, b.y);
-        }
-        for (int lat = -90; lat <= 90; lat += step) {
-            const Point a = toScreen(app, {-180, static_cast<double>(lat)}),
-                        b = toScreen(app, {180, static_cast<double>(lat)});
-            glVertex2d(a.x, a.y);
-            glVertex2d(b.x, b.y);
-        }
-        glEnd();
+        for (int lon = -180; lon <= 180; lon += step)
+            drawGeoPath(app, {{static_cast<double>(lon), -90}, {static_cast<double>(lon), 90}},
+                        GL_LINE_STRIP);
+        for (int lat = -90; lat <= 90; lat += step)
+            drawGeoPath(app, {{-180, static_cast<double>(lat)}, {180, static_cast<double>(lat)}},
+                        GL_LINE_STRIP);
     }
+
     for (const auto& feature : app.baseLand) {
         if (!inView(app, feature))
             continue;
@@ -106,14 +165,8 @@ void drawBasemap(const SceneState& app) {
         setHex(0x8E9F95);
         glLineWidth(1);
         for (const auto& polygon : feature.polygons)
-            for (const auto& ring : polygon.rings) {
-                glBegin(GL_LINE_LOOP);
-                for (Point p : ring) {
-                    p = toScreen(app, p);
-                    glVertex2d(p.x, p.y);
-                }
-                glEnd();
-            }
+            for (const auto& ring : polygon.rings)
+                drawGeoPath(app, ring, GL_LINE_LOOP);
     }
     if (app.zoom < 8) {
         struct Place {
@@ -137,41 +190,37 @@ void drawBasemap(const SceneState& app) {
 
 // En detalle borra la costa generalizada dentro de la ENC; de lejos señala su cobertura.
 void drawCoverage(const SceneState& app, bool overview) {
-    for (const auto& f : app.features) {
-        if (app.layers[f.layer].objectClass != "M_COVR" || attr(f, "CATCOV") != "1" ||
-            !inView(app, f))
-            continue;
+    for (auto cell : activeCells(app)) {
+        const auto& coverage = app.cells[cell].coverage;
         if (!overview) {
-            // Sustituye la costa generalizada únicamente dentro de la cobertura ENC real.
-            // Los huecos teselados y las áreas CATCOV=2 conservan el fondo mundial.
-            paintArea(app, f, 0xC8E1DF);
-        } else {
-            setHex(0x8A5B94);
-            glLineWidth(1.5f);
-            for (const auto& polygon : f.polygons)
-                for (const auto& ring : polygon.rings) {
-                    glBegin(GL_LINE_LOOP);
-                    for (Point p : ring) {
-                        p = toScreen(app, p);
-                        glVertex2d(p.x, p.y);
-                    }
-                    glEnd();
-                }
-            Point a = toScreen(app, {f.minX, f.minY}), b = toScreen(app, {f.maxX, f.maxY});
-            if (std::abs(b.x - a.x) < 8 && std::abs(b.y - a.y) < 8) {
-                const double x = (a.x + b.x) * 0.5, y = (a.y + b.y) * 0.5;
-                rect(x - 3, y - 3, 6, 6, 0x8A5B94);
+            if (!app.presentation.automaticMosaic) {
+                Feature f;
+                f.polygons = coverage;
+                paintArea(app, f, 0xC8E1DF);
             }
+            continue;
         }
+        setHex(0x8A5B94);
+        glLineWidth(1.5f);
+        for (const auto& polygon : coverage)
+            for (const auto& ring : polygon.rings) {
+                drawGeoPath(app, ring, GL_LINE_LOOP);
+                if (ring.empty())
+                    continue;
+                const auto a = toScreen(app, ring.front());
+                const auto b = toScreenContinuous(app, ring[ring.size() / 2], ring.front().x);
+                if (std::abs(a.x - b.x) < 8 && std::abs(a.y - b.y) < 8)
+                    rect((a.x + b.x) * .5 - 3, (a.y + b.y) * .5 - 3, 6, 6, 0x8A5B94);
+            }
     }
 }
 
 // Prioriza ayudas, símbolos ordinarios y sondas, evitando colisiones entre etiquetas.
-void drawPoints(SceneState& app) {
+void drawPoints(SceneState& app, const std::vector<std::size_t>& indices) {
     LabelLayout layout;
     // Reserva espacio para las ayudas antes de ubicar puntos ordinarios y sondas.
     for (int pass = 0; pass < 3; ++pass)
-        for (std::size_t fi = 0; fi < app.features.size(); ++fi) {
+        for (auto fi : indices) {
             const auto& f = app.features[fi];
             const bool selected = static_cast<int>(fi) == app.selected;
             const auto kind = f.symbol.kind;
@@ -181,7 +230,10 @@ void drawPoints(SceneState& app) {
             const auto symbol = visibleSymbol(app, f);
             const double symbolScale =
                 std::clamp(app.zoom / 6500.0, 0.72, 1.15) * app.presentation.symbolScale;
+            std::size_t pointNumber = 0;
             for (const Point& world : f.points) {
+                const std::uint64_t labelKey =
+                    (static_cast<std::uint64_t>(fi) << 32) | pointNumber++;
                 const Point p = toScreen(app, world);
                 if (p.x < -30 || p.x > app.width - kSidebarWidth + 30 ||
                     p.y < kToolbarHeight - 35 || p.y > app.height - kStatusHeight + 35)
@@ -193,7 +245,9 @@ void drawPoints(SceneState& app) {
                     std::ostringstream text;
                     text << std::fixed << std::setprecision(world.depth < 20 ? 1 : 0)
                          << world.depth;
-                    layout.add(app, p.x + 2, p.y - 3, text.str(), 0x405A68, 48);
+                    layout.add(app, p.x + 2, p.y - 3, text.str(),
+                               world.depth <= app.presentation.safetyDepth ? 0xA13D32 : 0x405A68,
+                               64, labelKey, selected);
                     continue;
                 }
                 // SECTR1/2 están medidos desde el mar hacia la luz (IHO S-57, apéndice A).
@@ -210,7 +264,8 @@ void drawPoints(SceneState& app) {
                     glVertex2d(p.x, p.y);
                     for (int step = 0; step <= 64; ++step) {
                         const double angle =
-                            (symbol.sectorStart + 180 + span * step / 64) * kPi / 180;
+                            (symbol.sectorStart + 180 + span * step / 64 + app.rotation) * kPi /
+                            180;
                         glVertex2d(p.x + 65 * symbolScale * std::sin(angle),
                                    p.y - 65 * symbolScale * std::cos(angle));
                     }
@@ -218,6 +273,10 @@ void drawPoints(SceneState& app) {
                     glEnd();
                 }
                 nautical::draw(symbol, p.x, p.y, symbolScale);
+                if (dangerous(app, f)) {
+                    glLineWidth(2);
+                    nautical::circle(p.x, p.y, 13 * symbolScale, 0xA13D32, false);
+                }
                 if (selected) {
                     glLineWidth(2);
                     nautical::circle(p.x, p.y, 12, 0xD16A30, false);
@@ -226,14 +285,45 @@ void drawPoints(SceneState& app) {
                     layout.reserve({p.x - 8, p.y - 27 * symbolScale, 17, 30 * symbolScale});
                 if (app.presentation.showLabels &&
                     (selected || (app.zoom > 8500 && isNavaid(kind)) || app.zoom > 22000)) {
-                    std::string name = attr(f, "OBJNAM");
+                    std::string name = app.presentation.preferNationalNames ? attr(f, "NOBJNM")
+                                                                            : attr(f, "OBJNAM");
+                    if (name.empty())
+                        name = attr(f, "OBJNAM");
                     if (name.empty() && selected)
                         name = app.layers[f.layer].objectClass;
-                    layout.add(app, p.x + 12, p.y - 13, name, 0x263D43);
+                    layout.add(app, p.x + 12, p.y - 13, name, 0x263D43, 240, labelKey, selected);
                 }
             }
         }
-    layout.draw();
+    layout.draw(app);
+}
+
+void drawDecorations(SceneState& app) {
+    if (app.presentation.showScaleBar) {
+        const double mpp = metresPerPixel(app),
+                     desired = std::max(1e-9, mpp * std::min(140., app.width * .25));
+        const double decade = std::pow(10., std::floor(std::log10(desired))),
+                     normal = desired / decade;
+        const double distance = decade * (normal >= 5   ? 5
+                                          : normal >= 2 ? 2
+                                                        : 1),
+                     pixels = distance / mpp;
+        const double y = app.height - 24;
+        rect(12, y, pixels, 3, 0x263D43);
+        rect(12, y - 3, 1, 9, 0x263D43);
+        rect(12 + pixels, y - 3, 1, 9, 0x263D43);
+        std::ostringstream text;
+        text << std::setprecision(3) << (distance >= 1000 ? distance / 1000 : distance)
+             << (distance >= 1000 ? " km" : " m");
+        drawLabelText(app, 14, y - 24, text.str(), 0x263D43, .8);
+    }
+    if (app.showCharts && app.presentation.showOverscale) {
+        bool overscale = false;
+        for (auto i : activeCells(app, 0))
+            overscale |= app.cells[i].compilationScale > displayScale(app);
+        if (overscale)
+            drawLabelText(app, 14, 8, "OVERSCALE", 0xA13D32, .9);
+    }
 }
 
 } // namespace
@@ -249,6 +339,7 @@ void drawChart(SceneState& app) {
     rect(0, kToolbarHeight, mapW, mapH, 0xB7D6DE);
     drawBasemap(app);
     if (!app.showCharts) {
+        drawDecorations(app);
         glDisable(GL_SCISSOR_TEST);
         return;
     }
@@ -259,81 +350,67 @@ void drawChart(SceneState& app) {
         if (!app.indexedCells.empty())
             drawText(16, kToolbarHeight + 16, "PURPLE: LOADED ENC COVERAGE / F: FIT CHARTS",
                      0x654B77, mapW - 30);
+        drawDecorations(app);
         glDisable(GL_SCISSOR_TEST);
         return;
     }
-    // Pinta las superficies físicas en el mismo orden para todas las celdas. Las áreas
-    // administrativas (M_COVR, M_QUAL, SEAARE, etc.) no deben tapar tierra ni profundidades.
-    std::array<std::vector<std::pair<const Feature*, unsigned int>>, 4> fillPasses;
-    for (const Feature& feature : app.features) {
-        if (!app.layers[feature.layer].visible || feature.polygons.empty() || !inView(app, feature))
-            continue;
-        const Style style = styleFor(app, feature);
-        if (style.fillPass >= 0)
-            fillPasses[static_cast<std::size_t>(style.fillPass)].push_back({&feature, style.fill});
-    }
-    for (const auto& pass : fillPasses)
-        for (const auto& [feature, color] : pass) {
-            paintArea(app, *feature, color);
+    const auto indices = app.spatial.query(viewportBounds(app, 50));
+    struct ResetCell {
+        int& value;
+        ~ResetCell() {
+            value = -1;
         }
-    for (std::size_t fi = 0; fi < app.features.size(); ++fi) {
-        const Feature& feature = app.features[fi];
-        if (!app.layers[feature.layer].visible || !inView(app, feature))
-            continue;
-        const Style style = styleFor(app, feature);
-        const auto& objectClass = app.layers[feature.layer].objectClass;
-        const bool specialArea = objectClass == "RESARE" || objectClass == "CTNARE" ||
-                                 objectClass == "CBLARE" || objectClass == "PIPARE";
-        const bool dashed = specialArea || objectClass == "CBLSUB" || objectClass == "PIPSOL";
-        if (dashed) {
-            glEnable(GL_LINE_STIPPLE);
-            glLineStipple(1, 0x0F0F);
+    } reset{app.renderingCell};
+    for (auto cellIndex : activeCells(app)) {
+        app.renderingCell = static_cast<int>(cellIndex);
+        const auto contour = safetyContour(app, app.renderingCell);
+        // El pintado por celda elimina símbolos y líneas generales cubiertos por datos más detallados.
+        if (app.presentation.automaticMosaic && app.cells[cellIndex].hasCoverage) {
+            Feature coverage;
+            coverage.polygons = app.cells[cellIndex].coverage;
+            paintArea(app, coverage, 0xC8E1DF);
         }
-        setHex(specialArea ? nautical::magenta : style.line);
-        glLineWidth(static_cast<int>(fi) == app.selected ? 2.5f : 1.0f);
-        for (const auto& line : feature.lines) {
-            glBegin(GL_LINE_STRIP);
-            for (Point p : line) {
-                p = toScreen(app, p);
-                glVertex2d(p.x, p.y);
+        std::vector<std::size_t> visible;
+        for (auto index : indices)
+            if (featureVisible(app, app.features[index], static_cast<int>(index) == app.selected))
+                visible.push_back(index);
+        std::stable_sort(visible.begin(), visible.end(), [&](auto a, auto b) {
+            const auto* ra = ruleFor(app, app.layers[app.features[a].layer].objectClass);
+            const auto* rb = ruleFor(app, app.layers[app.features[b].layer].objectClass);
+            return (ra ? ra->priority : 5) < (rb ? rb->priority : 5);
+        });
+        for (int pass = 0; pass < 4; ++pass)
+            for (auto i : visible) {
+                const auto& f = app.features[i];
+                const auto style = styleFor(app, f);
+                if (style.fillPass == pass)
+                    paintArea(app, f, style.fill);
             }
-            glEnd();
-        }
-        for (const Polygon& polygon : feature.polygons)
-            for (const auto& ring : polygon.rings) {
-                glBegin(GL_LINE_LOOP);
-                for (Point p : ring) {
-                    p = toScreen(app, p);
-                    glVertex2d(p.x, p.y);
-                }
-                glEnd();
+        for (auto i : visible) {
+            const auto& f = app.features[i];
+            const auto style = styleFor(app, f);
+            const auto& name = app.layers[f.layer].objectClass;
+            const auto* rule = ruleFor(app, name);
+            const bool isContour = name == "DEPCNT" && contour && !attr(f, "VALDCO").empty() &&
+                                   std::abs(std::atof(attr(f, "VALDCO").c_str()) - *contour) < 1e-6;
+            const bool selected = static_cast<int>(i) == app.selected;
+            setHex(selected ? 0xB94735 : isContour ? 0x304B50 : style.line);
+            glLineWidth(selected ? 2.5f : isContour ? 3.f : rule ? rule->lineWidth : 1.f);
+            if (rule && rule->pattern != LinePattern::Solid) {
+                glEnable(GL_LINE_STIPPLE);
+                glLineStipple(1, rule->pattern == LinePattern::Dashed ? 0x0F0F : 0x1111);
             }
-        if (dashed)
+            for (const auto& line : f.lines)
+                drawGeoPath(app, line, GL_LINE_STRIP);
+            for (const auto& polygon : f.polygons)
+                for (const auto& ring : polygon.rings)
+                    drawGeoPath(app, ring, GL_LINE_LOOP);
             glDisable(GL_LINE_STIPPLE);
-    }
-    drawPoints(app);
-    if (app.selected >= 0 && app.selected < static_cast<int>(app.features.size())) {
-        const Feature& f = app.features[static_cast<std::size_t>(app.selected)];
-        setHex(0xB94735);
-        glLineWidth(2);
-        for (const auto& line : f.lines) {
-            glBegin(GL_LINE_STRIP);
-            for (Point p : line) {
-                p = toScreen(app, p);
-                glVertex2d(p.x, p.y);
-            }
-            glEnd();
         }
-        for (const Polygon& polygon : f.polygons)
-            for (const auto& ring : polygon.rings) {
-                glBegin(GL_LINE_LOOP);
-                for (Point p : ring) {
-                    p = toScreen(app, p);
-                    glVertex2d(p.x, p.y);
-                }
-                glEnd();
-            }
+        drawPoints(app, visible);
     }
+    app.renderingCell = -1;
+    drawDecorations(app);
     glDisable(GL_SCISSOR_TEST);
 }
 

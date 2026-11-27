@@ -8,7 +8,7 @@ la cámara, la presentación y las capas geográficas.
 
 ## Dependencias y compilación
 
-La biblioteca estática requiere C++17, GDAL ≥ 3.0 con controlador S57, OpenGL de escritorio
+La biblioteca estática requiere C++17, GDAL ≥ 3.0 con controlador S57 y soporte GEOS, OpenGL de escritorio
 y GLU. No necesita GLFW ni EGL. El ejemplo de escritorio añade GLFW; las pruebas
 gráficas añaden EGL/Mesa. El paquete se ha desarrollado y verificado en Linux;
 para otras plataformas hay que validar sus toolchains y contextos.
@@ -35,7 +35,7 @@ cmake --install enc-viewer-sdk/build/library --prefix /ruta/al/paquete
 En el proyecto receptor:
 
 ```cmake
-find_package(EncSDK 0.1 REQUIRED CONFIG)
+find_package(EncSDK 0.2 REQUIRED CONFIG)
 add_executable(mi_aplicacion main.cpp)
 target_link_libraries(mi_aplicacion PRIVATE enc::viewer)
 ```
@@ -50,7 +50,9 @@ y pruebas se activan mediante las [opciones de desarrollo](mantenimiento.md).
 
 El paquete exporta las dependencias transitivas de la biblioteca estática. No se
 agregan rutas `src/` al consumidor ni se incluyen archivos `.cpp`. El mapa mundial
-queda incorporado al binario, por lo que no hay que copiar `assets/` al ejecutable.
+queda incorporado al binario junto con el atlas de texto, por lo que no hay que
+copiar `assets/` al ejecutable ni instalar una fuente. FreeType sólo interviene
+si se regenera el atlas durante desarrollo.
 GDAL y sus datos de proyección siguen siendo dependencias del entorno de ejecución.
 
 ## Secuencia mínima
@@ -75,10 +77,12 @@ const auto cuadro = visor.render({0, 0, anchoFramebuffer, altoFramebuffer});
 visor.releaseGraphicsResources();
 ```
 
-Hay dos ejemplos compilables: [lectura sin ventana](../examples/minimal/index.cpp)
+Las referencias mínimas compilables son [lectura sin ventana](../examples/minimal/index.cpp)
 y [renderizado mínimo con GLFW](../examples/minimal/opengl.cpp). El
 [visor completo](../examples/viewer/README.md) agrega paneles y controles usando
 exclusivamente las cabeceras públicas.
+El [ejemplo avanzado](../examples/advanced/README.md) reúne las funciones nuevas
+en un consumidor compacto: carga progresiva, proyecciones, presentación y contactos.
 
 ## Indexar y elegir las celdas
 
@@ -105,12 +109,20 @@ Para volver a recorrer la carpeta, llamar `Catalog::refresh()`. El SDK no instal
 un vigilante ni recarga automáticamente la escena: el anfitrión decide cuándo
 confirmar una nueva selección con `loadCatalog` o `loadCells`.
 
+Para navegar colecciones grandes sin realizar toda la lectura en el hilo de
+interfaz, usar [`ChartStreamer`](carga-progresiva.md). Se solicita la región
+`viewBounds(margen)` y se llama a `poll(visor)` desde el hilo anfitrión antes de
+dibujar. Su confirmación renueva los identificadores de objetos ENC; los contactos
+y las imágenes permanecen en la escena.
+
 ## Coordenadas, mouse y HiDPI
 
 - Geografía: `GeoPoint{longitud, latitud}` WGS84 en grados.
 - Navegación: píxeles **lógicos**, origen arriba a la izquierda del área del mapa.
 - `RenderTarget`: píxeles **físicos**, origen abajo a la izquierda del framebuffer.
-- Cámara: `pixelsPerDegree` es la escala de la proyección equirectangular local.
+- Cámara: `pixelsPerDegree` controla el eje longitudinal proyectado; `projection`
+  elige proyección local o Mercator y `rotationDegrees` fija el giro horario.
+- Regiones: `west > east` expresa un cruce del antimeridiano.
 
 Si hay una barra superior, restar su altura a la posición del mouse antes de
 llamar `zoomAt` o `pick`. En una pantalla de escala 2x, un mapa lógico 800×600
@@ -122,6 +134,11 @@ visor.panBy(deltaXLogico, deltaYLogico);
 const auto objeto = visor.pick({mouseXLocal, mouseYLocal});
 visor.select(objeto ? std::optional<enc::FeatureId>(objeto->id) : std::nullopt);
 ```
+
+Llamar a `rememberView()` al comenzar un gesto para agruparlo en el historial.
+`pickAll()` permite ofrecer varias alternativas bajo el cursor. La
+[guía de visualización](visualizacion.md) describe también las categorías, reglas,
+escala física, etiquetas UTF-8 y contornos de seguridad.
 
 El SDK dibuja en el framebuffer que el anfitrión haya enlazado, incluido un FBO.
 No lo cambia, no ejecuta `glClear` y no intercambia buffers. Limita el dibujo a la
@@ -162,6 +179,19 @@ Los ecos llegan georreferenciados; el SDK no abre sockets ni implementa protocol
 radar. El modo externo no agrega ruido ni blancos sintéticos. Cambiar origen,
 alcance o modo invalida esa escena externa; volver a entregar los ecos.
 
+## Contactos AIS y radar rastreados
+
+`upsertContacts()` recibe un lote de posiciones y estados con identificadores
+estables. `setOwnShip()` permite aportar el movimiento propio; `configureContacts()`
+ajusta vectores, pérdida, filtros y evaluación CPA/TCPA. Los contactos se dibujan
+encima del PPI y no se eliminan al cambiar celdas.
+
+El adaptador del anfitrión traduce sus sensores al modelo público y al reloj
+`contactTime()`. `advance(dt)` actualiza contactos incluso si el PPI está oculto;
+no llamar además a `advanceContacts(dt)` para ese mismo intervalo.
+Ver [contactos](contactos.md) para un ejemplo de informes y la trazabilidad de
+los símbolos implementados frente a la referencia de presentación OMI.
+
 ## Hilos, contexto y cierre
 
 ![Vida del contexto y las texturas](diagrams/lifecycle.svg)
@@ -170,6 +200,9 @@ Las operaciones de carga y consulta funcionan sin contexto. Se pueden ejecutar
 en un hilo de trabajo si se serializan las llamadas a esa instancia; los callbacks
 de progreso deben encolar notificaciones al hilo de interfaz, sin reentrar al visor.
 No cargar y renderizar simultáneamente el mismo objeto.
+`ChartStreamer` administra su propio trabajador; sus llamadas públicas y `poll`
+deben serializarse en el hilo anfitrión. Su destructor espera la lectura GDAL en
+curso. No ejecutar otros métodos de `Viewer` desde ese trabajador.
 
 Cada instancia que renderiza pertenece a un contexto y un hilo gráfico. Usar
 `render`, `renderSymbolCatalogue` y `releaseGraphicsResources` en ese contexto.
@@ -178,7 +211,7 @@ La biblioteca comprueba contexto disponible, perfil y hilo; comprobar que es el
 
 Eliminar imágenes sólo encola sus texturas. El siguiente renderizado recoge esa
 cola. Antes de destruir el contexto, `releaseGraphicsResources` elimina todas las
-texturas, incluidas las de capas ya retiradas. Conserva los datos CPU: se puede
+texturas, incluidas las de capas ya retiradas y el atlas de etiquetas. Conserva los datos CPU: se puede
 renderizar de nuevo en un contexto nuevo después de esa liberación.
 
 El destructor de `Viewer` no llama OpenGL. Omitir la liberación explícita impide
@@ -193,7 +226,7 @@ compatible; `diagnostics` aporta mensajes por archivo. Los fallos operativos se
 comunican por estos tipos; las excepciones estándar de memoria siguen siendo
 posibles.
 
-Las cargas son síncronas y transaccionales. Por defecto, una celda que falla
+Las cargas directas de `Viewer` son síncronas y transaccionales. Por defecto, una celda que falla
 conserva toda la colección anterior. `LoadOptions::allowPartial=true` confirma las
 celdas válidas e informa las descartadas. La cancelación comprueba el callback
 entre celdas y antes de confirmar, conservando la escena anterior.

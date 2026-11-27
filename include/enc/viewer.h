@@ -2,6 +2,8 @@
 // Gestiona datos, cámara, presentación, selección y capas; el anfitrión posee ventana, contexto y reloj.
 #pragma once
 #include "catalog.h"
+#include "contacts.h"
+#include "portrayal.h"
 #include "symbols.h"
 #include <memory>
 #include <optional>
@@ -26,6 +28,9 @@ struct FeatureInfo {
     Bounds bounds;
     std::vector<Attribute> attributes;
     SymbolDescription symbol;
+    std::string description;
+    std::vector<AttributeDescription> decodedAttributes;
+    bool danger = false;
     std::optional<GeoPoint> position; // Primer punto de anclaje, cuando el objeto lo contiene.
     std::optional<double> depth;      // Z del primer punto, cuando existe; sondas en metros.
 };
@@ -66,6 +71,26 @@ struct RadarInfo {
     std::size_t echoCount = 0;
 };
 
+struct ScaleInfo {
+    double denominator = 0, metresPerPixel = 0, barMetres = 0, barPixels = 0;
+    bool overscale = false;
+};
+struct VisibleCell {
+    std::filesystem::path path;
+    int compilationScale = 0, intendedUsage = 0;
+    double overscaleFactor = 0;
+};
+struct CellContour {
+    std::filesystem::path cell;
+    std::optional<double> contour;
+};
+struct DepthInfo {
+    double requestedContour = 0;
+    std::optional<double>
+        displayedContour; // Valor común cuando coincide en todas las celdas visibles.
+    std::vector<CellContour> cells;
+};
+class ChartStreamer;
 // Una instancia representa una escena. Serializar sus llamadas; cada instancia GPU usa un contexto.
 // Su destructor nunca llama OpenGL: llamar releaseGraphicsResources() antes de destruir el contexto.
 class Viewer {
@@ -92,6 +117,11 @@ class Viewer {
     Theme theme() const;
     Status setPresentation(const Presentation& presentation);
     Presentation presentation() const;
+    Status setPortrayalRules(const std::vector<PortrayalRule>& overrides);
+    std::vector<PortrayalRule> portrayalRules() const;
+    ScaleInfo scaleInfo() const;
+    std::vector<VisibleCell> visibleCells() const;
+    DepthInfo depthInfo() const;
 
     // Tamaño lógico del mapa, sin paneles del anfitrión. resize(0,0) permite suspender el dibujo.
     Status resize(int width, int height);
@@ -100,6 +130,12 @@ class Viewer {
     bool fitCharts();
     void fitWorld();
     Status fitBounds(const Bounds& bounds);
+    Status fitFeatures(const std::vector<FeatureId>& features);
+    Bounds viewBounds(double marginPixels = 0) const;
+    // Guardar al comenzar un gesto; permite agrupar arrastres y series de zoom en un paso.
+    void rememberView();
+    bool previousView();
+    bool nextView();
     Status zoomAt(ScreenPoint cursor, double factor);
     Status panBy(double dx, double dy);
     GeoPoint screenToGeo(ScreenPoint point) const;
@@ -111,6 +147,8 @@ class Viewer {
                                            const std::string& objectClass = {},
                                            std::size_t limit = 1000) const;
     std::optional<FeatureInfo> pick(ScreenPoint point) const;
+    std::vector<FeatureInfo> pickAll(ScreenPoint point, double tolerancePixels = 6,
+                                     std::size_t limit = 100) const;
     std::optional<FeatureInfo> feature(FeatureId id) const;
     Status select(std::optional<FeatureId> id);
     std::optional<FeatureInfo> selected() const;
@@ -138,6 +176,24 @@ class Viewer {
     // Sólo el anfitrión avanza la simulación; render() no modifica el reloj.
     Status advance(double seconds);
 
+    // Contactos independientes de las celdas, con IDs estables suministrados por el anfitrión.
+    Status configureContacts(const ContactSettings& settings);
+    ContactSettings contactSettings() const;
+    Status upsertContacts(const std::vector<Contact>& reports);
+    Status removeContact(const ContactId& id);
+    void clearContacts();
+    std::vector<ContactInfo> contacts() const;
+    std::optional<ContactInfo> contact(const ContactId& id) const;
+    Status selectContact(std::optional<ContactId> id);
+    Status acknowledgeContact(const ContactId& id);
+    // Selecciona por distancia al punto de referencia del contacto; tolerancia en píxeles lógicos.
+    std::vector<ContactInfo> pickContacts(ScreenPoint point, double tolerancePixels = 16) const;
+    Status setOwnShip(std::optional<OwnShip> ship);
+    std::optional<OwnShip> ownShip() const;
+    double contactTime() const;
+    Status advanceContacts(double seconds); // Reloj completo; advance() también lo avanza una vez.
+    ContactLayerInfo contactLayerInfo() const;
+
     // Dibuja en el framebuffer que ya esté enlazado, conservando el estado OpenGL del anfitrión.
     // Requiere OpenGL de escritorio >=2.1 de compatibilidad. No crea ventana ni intercambia buffers.
     Status render(const RenderTarget& target);
@@ -146,6 +202,7 @@ class Viewer {
     Status releaseGraphicsResources();
 
   private:
+    friend class ChartStreamer;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

@@ -1,8 +1,20 @@
 # CMakeLists.txt — Contratos de CPU, renderizado opcional e integración de consumidores externos.
 # GLFW no interviene; EGL sólo se busca cuando están habilitadas las pruebas gráficas.
+add_executable(enc-navigation-test navigation_edge_test.cpp)
+target_include_directories(enc-navigation-test PRIVATE "${enc_sdk_SOURCE_DIR}/src")
+target_link_libraries(enc-navigation-test PRIVATE enc::viewer)
+add_test(NAME enc-navigation COMMAND enc-navigation-test)
+
 add_executable(enc-core-test core_test.cpp)
 target_link_libraries(enc-core-test PRIVATE enc::viewer)
 add_test(NAME enc-cpu COMMAND enc-core-test "${enc_sdk_SOURCE_DIR}/sample-charts" "${CMAKE_CURRENT_BINARY_DIR}/cpu-data")
+
+add_executable(enc-advanced-test advanced_test.cpp)
+target_link_libraries(enc-advanced-test PRIVATE enc::viewer)
+add_test(NAME enc-advanced COMMAND enc-advanced-test "${enc_sdk_SOURCE_DIR}/sample-charts")
+add_executable(enc-contacts-test contacts_test.cpp)
+target_link_libraries(enc-contacts-test PRIVATE enc::viewer)
+add_test(NAME enc-contacts COMMAND enc-contacts-test)
 
 if(ENC_BUILD_RENDER_TESTS)
     find_package(OpenGL REQUIRED COMPONENTS OpenGL EGL)
@@ -10,6 +22,11 @@ if(ENC_BUILD_RENDER_TESTS)
     target_link_libraries(enc-render-test PRIVATE enc::viewer GDAL::GDAL OpenGL::GL OpenGL::EGL Threads::Threads)
     add_test(NAME enc-render COMMAND enc-render-test "${enc_sdk_SOURCE_DIR}/sample-charts" "${CMAKE_CURRENT_BINARY_DIR}/captures")
     set_tests_properties(enc-render PROPERTIES ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+    add_executable(enc-presentation-test presentation_test.cpp test_support.cpp fixtures.cpp)
+    target_include_directories(enc-presentation-test PRIVATE "${enc_sdk_SOURCE_DIR}/src")
+    target_link_libraries(enc-presentation-test PRIVATE enc::viewer GDAL::GDAL OpenGL::GL OpenGL::EGL Threads::Threads)
+    add_test(NAME enc-presentation COMMAND enc-presentation-test "${CMAKE_CURRENT_BINARY_DIR}/captures")
+    set_tests_properties(enc-presentation PROPERTIES ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
 endif()
 
 # El hueco geométrico requiere inspeccionar la teselación privada; no necesita un contexto.

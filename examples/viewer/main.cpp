@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     source = std::filesystem::current_path() / "charts";
 #endif
     std::vector<std::filesystem::path> images;
-    bool night = false, radar = false, demo = false;
+    bool night = false, radar = false, demo = false, contacts = false, streaming = false;
     int smokeFrames = 0;
     std::filesystem::path screenshot;
     for (int i = 1; i < argc; ++i) {
@@ -39,6 +39,10 @@ int main(int argc, char** argv) {
             night = false;
         else if (arg == "--radar")
             radar = true;
+        else if (arg == "--contacts")
+            contacts = true;
+        else if (arg == "--streaming")
+            streaming = true;
         else if (arg == "--demo-tiff")
             demo = true;
         else if (arg == "--smoke-frames" && i + 1 < argc) {
@@ -53,7 +57,8 @@ int main(int argc, char** argv) {
         else if (arg == "--help") {
             std::cout
                 << "Uso: enc-viewer-demo [CARPETA_O_CELDA] [IMAGEN.tif...] [--radar] [--demo-tiff] "
-                   "[--night|--day]\nControles: O abrir, F ajustar, W mundo, V ENC, N dia/noche, L "
+                   "[--night|--day] [--contacts] [--streaming]\nControles: O abrir, F ajustar, W "
+                   "mundo, V ENC, N dia/noche, L "
                    "catalogo, R radar, C origen, P pausa, [ ] alcance, T TIFF, I ocultar, J "
                    "restaurar, K ajustar imagen, Shift+arrastre/rueda editar, F5 reindexar.\n";
             return 0;
@@ -85,11 +90,13 @@ int main(int argc, char** argv) {
     {
         demo::App app;
         app.window = window;
+        app.progressive = streaming;
+        app.simulateContacts = contacts;
         app.viewer.resize(app.mapWidth(), app.mapHeight());
         app.viewer.setTheme(night ? enc::Theme::Night : enc::Theme::Day);
         demo::registerInput(app);
         app.loadCharts(source);
-        if (app.viewer.sceneInfo().cellCount == 0)
+        if (app.viewer.sceneInfo().cellCount == 0 && !streaming)
             app.viewer.fitWorld();
         for (const auto& path : images)
             app.openImage(path);
@@ -97,8 +104,11 @@ int main(int argc, char** argv) {
             app.demoImage();
         if (radar)
             app.viewer.enableRadar(true);
+        if (contacts)
+            app.createDemoContacts();
         double previous = glfwGetTime();
         int frames = 0;
+        const double smokeStarted = glfwGetTime();
         while (!glfwWindowShouldClose(window)) {
             const double now = glfwGetTime();
             app.report(app.viewer.advance(now - previous));
@@ -110,6 +120,8 @@ int main(int argc, char** argv) {
                 continue;
             }
             app.viewer.resize(app.mapWidth(), app.mapHeight());
+            app.updateStreaming();
+            app.updateDemoContacts();
             const double sx = static_cast<double>(app.frameWidth) / app.width,
                          sy = static_cast<double>(app.frameHeight) / app.height;
             const enc::RenderTarget target{0, static_cast<int>(demo::footer * sy),
@@ -123,11 +135,18 @@ int main(int argc, char** argv) {
                 break;
             }
             demo::drawInterface(app);
-            ++frames;
+            if (!app.streamer ||
+                (!app.streamer->info().loading && app.viewer.sceneInfo().cellCount > 0))
+                ++frames;
             if (smokeFrames > 0 && frames >= smokeFrames) {
                 if (!screenshot.empty())
                     saveScreenshot(app.frameWidth, app.frameHeight, screenshot);
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+            if (smokeFrames > 0 && glfwGetTime() - smokeStarted > 30) {
+                std::cerr << "Tiempo agotado esperando cartas de prueba.\n";
+                exitCode = 4;
+                break;
             }
             glfwSwapBuffers(window);
             glfwPollEvents();

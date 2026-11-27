@@ -9,6 +9,12 @@
 
 namespace enc::detail {
 
+// Longitud normalizada y envolvente que admite cruce del antimeridiano.
+double wrapLongitude(double longitude);
+Bounds viewportBounds(const SceneState& app, double margin = 0);
+bool fitRegion(SceneState& app, const Bounds& bounds);
+double metresPerPixel(const SceneState& app);
+
 // Relaciona los píxeles físicos del framebuffer con las coordenadas lógicas del mouse.
 std::pair<double, double> framebufferScale(const SceneState& app);
 
@@ -23,6 +29,10 @@ double lonScale(const SceneState& app);
 
 // Proyecta longitud/latitud a la vista local, con el eje vertical orientado hacia abajo.
 Point toScreen(const SceneState& app, Point p);
+
+// Mantiene una geometría continua: p.x y anclaje deben estar desenvueltos en la misma rama.
+// worldCopy desplaza una vuelta de longitud sin plegar los vértices de un polígono mundial.
+Point toScreenContinuous(const SceneState& app, Point p, double anchorLongitude, int worldCopy = 0);
 
 // Invierte la cámara para convertir una posición del mouse en coordenadas WGS84.
 overlays::GeoPoint worldAt(const SceneState& app, double x, double y);

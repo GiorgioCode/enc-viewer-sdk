@@ -7,6 +7,7 @@
 #include "render_primitives.h"
 #include <GL/gl.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
@@ -19,6 +20,29 @@ namespace {
 void drawRaster(SceneState& app, overlays::Raster& image) {
     if (!image.loaded() || !image.visible || image.opacity <= 0)
         return;
+    // Una huella sobre ±180° mantiene una rama común; cada copia se recorta antes de dibujar.
+    std::array<Point, 4> corners;
+    const double anchor = image.placedCorner(0).lon;
+    for (int i = 0; i < 4; ++i) {
+        const auto point = image.placedCorner(i);
+        corners[i] = {anchor + wrapLongitude(point.lon - anchor), point.lat};
+    }
+    std::vector<std::array<Point, 4>> copies;
+    for (int copy = -1; copy <= 1; ++copy) {
+        std::array<Point, 4> projected;
+        double left = 1e30, right = -1e30, top = 1e30, bottom = -1e30;
+        for (int i = 0; i < 4; ++i) {
+            projected[i] = toScreenContinuous(app, corners[i], anchor, copy);
+            left = std::min(left, projected[i].x);
+            right = std::max(right, projected[i].x);
+            top = std::min(top, projected[i].y);
+            bottom = std::max(bottom, projected[i].y);
+        }
+        if (right >= -1 && left <= app.width + 1 && bottom >= -1 && top <= app.height + 1)
+            copies.push_back(projected);
+    }
+    if (copies.empty())
+        return;
     image.upload(app.gpu);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, image.texture->id);
@@ -28,24 +52,22 @@ void drawRaster(SceneState& app, overlays::Raster& image) {
     glColor4d(brightness, brightness, brightness, image.opacity);
     constexpr double uv[][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
     glBegin(GL_QUADS);
-    for (int i = 0; i < 4; ++i) {
-        const auto p = image.placedCorner(i);
-        const auto screen = toScreen(app, {p.lon, p.lat});
-        glTexCoord2dv(uv[i]);
-        glVertex2d(screen.x, screen.y);
-    }
+    for (const auto& projected : copies)
+        for (int i = 0; i < 4; ++i) {
+            glTexCoord2dv(uv[i]);
+            glVertex2d(projected[i].x, projected[i].y);
+        }
     glEnd();
     glBindTexture(GL_TEXTURE_2D, 0);
     glDisable(GL_TEXTURE_2D);
     setHex(0xE9A84C, .75f);
     glLineWidth(1);
-    glBegin(GL_LINE_LOOP);
-    for (int i = 0; i < 4; ++i) {
-        const auto p = image.placedCorner(i);
-        const auto screen = toScreen(app, {p.lon, p.lat});
-        glVertex2d(screen.x, screen.y);
+    for (const auto& projected : copies) {
+        glBegin(GL_LINE_LOOP);
+        for (auto point : projected)
+            glVertex2d(point.x, point.y);
+        glEnd();
     }
-    glEnd();
 }
 
 // Usa fósforo verde de día y rojo de noche, conservando la intensidad y el alfa.
@@ -63,13 +85,15 @@ void drawRadar(const SceneState& app) {
         return;
     const auto centre = toScreen(app, {radar.origin.lon, radar.origin.lat});
     const double rx = radar.rangeNm / (60 * radar.cosine()) * lonScale(app) * app.zoom,
-                 ry = radar.rangeNm / 60 * app.zoom;
+                 ry = radar.rangeNm / 60 * app.zoom *
+                      (app.projection == Projection::Mercator ? 1 / radar.cosine() : 1);
     if (rx < 3 || ry < 3)
         return;
     const auto [sx, sy] = framebufferScale(app);
     (void)sy;
     glPushMatrix();
     glTranslated(centre.x, centre.y, 0);
+    glRotated(app.rotation, 0, 0, 1);
     glScaled(rx, ry, 1);
     radarColour(app, 0, .025, .012, radar.opacity * .75);
     glBegin(GL_TRIANGLE_FAN);
@@ -162,16 +186,20 @@ void drawRadar(const SceneState& app) {
     glVertex2d(std::sin(sweep), -std::cos(sweep));
     glEnd();
     glPopMatrix();
-    drawText(centre.x - 3, centre.y - ry - 12, "N", 0x2A9A59);
+    // Las leyendas conservan texto horizontal, pero su posición sigue el norte geográfico del PPI.
+    const double angle = app.rotation * kPi / 180, c = std::cos(angle), sn = std::sin(angle);
+    drawText(centre.x + (ry + 12) * sn - 3, centre.y - (ry + 12) * c, "N", 0x2A9A59);
     for (int ring = 1; ring <= 4; ++ring) {
         std::ostringstream text;
         text << std::fixed << std::setprecision(2) << radar.rangeNm * ring / 4 << " NM";
-        drawText(centre.x + 6, centre.y - ry * ring / 4 + 4, text.str(), 0x279456);
+        drawText(centre.x + ry * ring / 4 * sn + 6 * c, centre.y - ry * ring / 4 * c + 6 * sn + 4,
+                 text.str(), 0x279456);
     }
     drawText(14, kToolbarHeight + 14,
-             radar.external ? "RADAR PPI / EXTERNAL ECHOES"
-             : radar.paused ? "RADAR PPI / SIMULATED / PAUSED"
-                            : "RADAR PPI / SIMULATED / NORTH UP",
+             radar.external                  ? "RADAR PPI / EXTERNAL ECHOES"
+             : radar.paused                  ? "RADAR PPI / SIMULATED / PAUSED"
+             : std::abs(app.rotation) > 1e-8 ? "RADAR PPI / SIMULATED / GEOREFERENCED"
+                                             : "RADAR PPI / SIMULATED / NORTH UP",
              0x25874C);
     if (radar.placingOrigin)
         drawText(14, kToolbarHeight + 29, "CLICK THE CHART TO SET RADAR ORIGIN", 0xC56F29);

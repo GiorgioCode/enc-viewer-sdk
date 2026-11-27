@@ -31,4 +31,9 @@ host -> gl : destruir contexto
 host -> Viewer : destruir instancia
 Viewer -> cpu : liberar datos
 note right of Viewer : El destructor no llama OpenGL.
+note bottom
+  El atlas de texto comparte el ciclo CPU/GPU de las imágenes.
+  ChartStreamer se cancela y espera su trabajador al destruirse.
+  Los contactos sólo utilizan datos CPU y sobreviven al cambio de cartas.
+end note
 @enduml

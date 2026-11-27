@@ -1,5 +1,31 @@
 # Registro de cambios
 
+## 0.2.0 — en preparación
+
+### Visualización y lectura
+
+- Mosaico automático por cobertura S-57 y escala, recorte de solapamientos y
+  consulta de las celdas candidatas.
+- SCAMIN/SCAMAX, categorías, reglas configurables, escala gráfica y sobreescala.
+- Contorno de seguridad por celda y presentación básica de sondas y peligros.
+- Texto UTF-8 con atlas incorporado, tamaño/densidad, prioridad y nombres nacionales.
+- Cámara Mercator/local, giro, antimeridiano, historial y encuadre de objetos.
+- Consulta de múltiples objetos y diccionarios descriptivos de clases/atributos.
+- `ChartStreamer`: lectura CPU por región, revisiones y caché LRU en RAM estimada.
+
+### Contactos y ejemplos
+
+- Contactos múltiples AIS, radar rastreado y asociados, independientes de las ENC.
+- Estados, selección, pérdida por tiempo, reconocimiento, filtros, vectores e historial.
+- Buque propio y evaluación CPA/TCPA local de velocidad constante.
+- Presentación parcial referenciada a OMI, con tabla de trazabilidad y límites explícitos.
+- Consumidor `enc-showcase` y opciones `--contacts`/`--streaming` del visor completo.
+- Guías específicas de visualización, carga progresiva y contactos, diagramas y capturas.
+- Pruebas de navegación, presentación, carga progresiva y contactos; avisos del atlas.
+
+La API y las estructuras públicas se amplían: recompilar consumidores y solicitar
+`find_package(EncSDK 0.2 REQUIRED CONFIG)`. No se promete compatibilidad binaria con 0.1.
+
 ## 0.1.0 — en preparación
 
 Versión inicial de la biblioteca y sus ejemplos de integración.

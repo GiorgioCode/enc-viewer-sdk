@@ -2,6 +2,9 @@
 // Incluye todos los contratos públicos; no expone detalles de implementación ni API gráficas externas.
 #pragma once
 #include "catalog.h"
+#include "contacts.h"
+#include "portrayal.h"
+#include "streaming.h"
 #include "symbols.h"
 #include "viewer.h"
 #include <enc/version.h>

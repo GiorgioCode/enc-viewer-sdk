@@ -246,6 +246,8 @@ RadarInfo Viewer::radarInfo() const {
 Status Viewer::advance(double seconds) {
     if (!detail::finite(seconds) || seconds < 0)
         return detail::invalid("El tiempo transcurrido debe ser finito y no negativo.");
+    if (auto status = advanceContacts(seconds); !status)
+        return status;
     impl_->scene.radar.advance(seconds);
     return {};
 }

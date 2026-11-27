@@ -14,3 +14,4 @@ CMakeLists.txt text eol=lf
 *.png binary
 # Datos ENC binarios: Git nunca debe transformar sus terminadores de línea.
 *.[0-9][0-9][0-9] binary
+*.rle binary

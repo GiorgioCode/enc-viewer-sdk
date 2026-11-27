@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(enc_subproject_consumer LANGUAGES CXX)
 add_subdirectory("${ENC_SOURCE}" sdk)
-foreach(unwanted IN ITEMS enc-index enc-minimal enc-viewer-demo enc-core-test package)
+foreach(unwanted IN ITEMS enc-index enc-minimal enc-viewer-demo enc-showcase enc-core-test package)
     if(TARGET ${unwanted})
         message(FATAL_ERROR "La integración predeterminada agrega el target ajeno ${unwanted}")
     endif()

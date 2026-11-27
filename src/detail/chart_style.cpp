@@ -4,6 +4,7 @@
 
 #include "chart_style.h"
 #include "camera.h"
+#include "mosaic.h"
 #include <cstdlib>
 #include <unordered_map>
 
@@ -34,6 +35,7 @@ void prepareSymbols(SceneState& app) {
         f.symbol = nautical::describe(app.layers[f.layer].objectClass,
                                       [&f](const std::string& key) { return attr(f, key); });
         f.minScale = std::atof(attr(f, "SCAMIN").c_str());
+        f.maxScale = std::atof(attr(f, "SCAMAX").c_str());
         if ((f.symbol.kind == nautical::Kind::Buoy || f.symbol.kind == nautical::Kind::Beacon) &&
             !f.points.empty()) {
             structures[positionKey(f)] = i;
@@ -106,6 +108,15 @@ Style styleFor(const SceneState& app, const Feature& feature) {
         style.line = style.point = 0xB34635;
     else if (name.find("WRECK") != std::string::npos || name.find("OBSTRN") != std::string::npos)
         style.line = style.point = 0x8B3C32;
+    if (const auto* rule = ruleFor(app, name)) {
+        if (rule->fill) {
+            style.fill = *rule->fill;
+            if (style.fillPass < 0)
+                style.fillPass = 3;
+        }
+        if (rule->line)
+            style.line = style.point = *rule->line;
+    }
     return style;
 }
 
@@ -117,16 +128,13 @@ bool isNavaid(nautical::Kind kind) {
 
 // Respeta capas, escala mínima y asociaciones para no duplicar equipos de una baliza.
 bool pointVisible(const SceneState& app, const Feature& f, bool selected) {
-    if (!app.layers[f.layer].visible || !inView(app, f))
+    if (!featureVisible(app, f, selected))
         return false;
     if (selected)
         return true;
     if (f.parent >= 0 && app.layers[app.features[static_cast<std::size_t>(f.parent)].layer].visible)
         return false;
-    if (isNavaid(f.symbol.kind))
-        return true;
-    const double scaleDenominator = 111319.49 / (app.zoom * 0.0002645833);
-    return f.minScale <= 0 || scaleDenominator <= f.minScale;
+    return true;
 }
 
 // Combina el cuerpo del símbolo con sus equipos únicamente si sus capas están activas.

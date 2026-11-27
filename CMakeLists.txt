@@ -1,7 +1,7 @@
 # CMakeLists.txt — Biblioteca C++17 instalable y consumidores opcionales de ENC Viewer SDK.
 # Los proyectos receptores sólo necesitan GDAL, OpenGL y GLU; GLFW/EGL se solicitan al activar ejemplos/pruebas.
 cmake_minimum_required(VERSION 3.16)
-project(enc_sdk VERSION 0.1.0 DESCRIPTION "Biblioteca integrable para visualizar ENC S-57"
+project(enc_sdk VERSION 0.2.0 DESCRIPTION "Biblioteca integrable para visualizar ENC S-57"
     HOMEPAGE_URL "https://github.com/GiorgioCode/enc-viewer-sdk" LANGUAGES CXX)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
@@ -23,11 +23,22 @@ if(NOT TARGET OpenGL::GLU)
 endif()
 
 # Recurso mundial y versión generados: ninguna ruta del checkout se necesita durante la ejecución.
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/world-land.geojson)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/world-land.geojson assets/enc-labels.rle)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/world-land.geojson" ENC_WORLD_JSON)
 configure_file(cmake/world_data.h.in generated/private/world_data.h @ONLY)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/assets/enc-labels.rle" ENC_FONT_BYTES HEX)
+string(REGEX REPLACE "(..)" "0x\\1," ENC_FONT_BYTES "${ENC_FONT_BYTES}")
+configure_file(cmake/font_data.h.in generated/private/font_data.h @ONLY)
 configure_file(cmake/version.h.in generated/include/enc/version.h @ONLY)
 add_library(enc-viewer STATIC
+    src/contacts.cpp
+    src/detail/contact_renderer.cpp
+    src/portrayal.cpp
+    src/navigation.cpp
+    src/streaming.cpp
+    src/detail/spatial_index.cpp
+    src/detail/mosaic.cpp
+    src/detail/text_renderer.cpp
     src/runtime.cpp
     src/catalog.cpp
     src/viewer.cpp
@@ -74,6 +85,7 @@ endif()
 if(ENC_BUILD_EXAMPLES)
     find_package(glfw3 3.3 REQUIRED)
     add_subdirectory(examples/viewer)
+    add_subdirectory(examples/advanced)
     add_executable(enc-minimal examples/minimal/opengl.cpp)
     target_link_libraries(enc-minimal PRIVATE enc::viewer glfw OpenGL::GL)
 endif()
@@ -95,7 +107,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/EncSDKConfig.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/EncSDK COMPONENT Development)
 install(FILES assets/README.md DESTINATION ${CMAKE_INSTALL_DATADIR}/enc-viewer-sdk
     RENAME WORLD-PROVENANCE.md COMPONENT Development)
-install(FILES THIRD_PARTY_NOTICES.md docs/paquete-instalado.md
+install(FILES THIRD_PARTY_NOTICES.md docs/paquete-instalado.md assets/FONT-LICENSE.txt
     DESTINATION ${CMAKE_INSTALL_DATADIR}/enc-viewer-sdk COMPONENT Development)
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/enc-viewer-sdk COMPONENT Development)
 
@@ -114,6 +126,7 @@ if(ENC_PLANTUML)
             "${CMAKE_CURRENT_SOURCE_DIR}/docs/diagrams/loading.puml"
             "${CMAKE_CURRENT_SOURCE_DIR}/docs/diagrams/rendering.puml"
             "${CMAKE_CURRENT_SOURCE_DIR}/docs/diagrams/lifecycle.puml"
+            "${CMAKE_CURRENT_SOURCE_DIR}/docs/diagrams/streaming.puml"
         COMMENT "Generando diagramas de integración en SVG")
 endif()
 

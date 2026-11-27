@@ -42,7 +42,7 @@ struct Layer {
 };
 
 struct Feature {
-    std::size_t layer = 0;
+    std::size_t layer = 0, cell = 0;
     std::vector<Point> points;
     std::vector<std::vector<Point>> lines;
     std::vector<Polygon> polygons;
@@ -51,7 +51,7 @@ struct Feature {
     // Índices de equipos asociados; -1 indica ausencia. parent evita dibujar un equipo dos veces.
     int topmark = -1, light = -1, parent = -1;
     // Envolvente geográfica para descarte rápido; minScale conserva SCAMIN de S-57.
-    double minX = 0, minY = 0, maxX = 0, maxY = 0, minScale = 0;
+    double minX = 0, minY = 0, maxX = 0, maxY = 0, minScale = 0, maxScale = 0;
 };
 
 } // namespace enc::detail

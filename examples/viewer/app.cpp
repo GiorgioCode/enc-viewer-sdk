@@ -23,6 +23,33 @@ void App::loadCharts(const std::filesystem::path& source) {
     report(candidate.scan(source));
     if (candidate.source().empty())
         return;
+    if (progressive) {
+        streamer = std::make_unique<enc::ChartStreamer>(candidate);
+        streamReportedRevision = 0;
+        bool first = true;
+        enc::Bounds bounds;
+        for (const auto& cell : candidate.cells())
+            if (cell.bounds.valid) {
+                if (first) {
+                    bounds = cell.bounds;
+                    first = false;
+                } else {
+                    bounds.west = std::min(bounds.west, cell.bounds.west);
+                    bounds.east = std::max(bounds.east, cell.bounds.east);
+                    bounds.south = std::min(bounds.south, cell.bounds.south);
+                    bounds.north = std::max(bounds.north, cell.bounds.north);
+                }
+            }
+        if (!first)
+            viewer.fitBounds(bounds);
+        catalog = std::move(candidate);
+        chartSource = source;
+        streamView = viewer.camera();
+        streamWidth = mapWidth();
+        streamHeight = mapHeight();
+        report(streamer->requestView(viewer.viewBounds(100), viewer.scaleInfo().denominator));
+        return;
+    }
     const auto result = viewer.loadCatalog(candidate);
     report(result);
     if (result) {
@@ -31,6 +58,40 @@ void App::loadCharts(const std::filesystem::path& source) {
         layerScroll = attributeScroll = 0;
     }
 }
+// Confirma resultados sin bloquear y espera a que termine el gesto antes de pedir otra región.
+void App::updateStreaming() {
+    if (!streamer)
+        return;
+    if (streamer->poll(viewer)) {
+        status = "ENC / CARGA PROGRESIVA CONFIRMADA";
+        layerScroll = attributeScroll = 0;
+    }
+    const auto progress = streamer->info();
+    if (!progress.loading && !progress.lastResult && progress.revision != streamReportedRevision) {
+        streamReportedRevision = progress.revision;
+        report(progress.lastResult);
+    }
+    const auto camera = viewer.camera();
+    const double now = glfwGetTime();
+    const auto same = [&](const enc::Camera& a, const enc::Camera& b) {
+        return a.center.lon == b.center.lon && a.center.lat == b.center.lat &&
+               a.pixelsPerDegree == b.pixelsPerDegree &&
+               a.referenceLatitude == b.referenceLatitude &&
+               a.rotationDegrees == b.rotationDegrees && a.projection == b.projection;
+    };
+    if (!streamView || !same(camera, *streamView) || streamWidth != mapWidth() ||
+        streamHeight != mapHeight()) {
+        streamView = camera;
+        streamWidth = mapWidth();
+        streamHeight = mapHeight();
+        cameraStableSince = now;
+    }
+    if (cameraStableSince > 0 && !mouseDown && now - cameraStableSince > .2) {
+        cameraStableSince = 0;
+        report(streamer->requestView(viewer.viewBounds(100), viewer.scaleInfo().denominator));
+    }
+}
+
 void App::openImage(const std::filesystem::path& source) {
     const auto result = viewer.addGeoTiff(source);
     report(result.status);
@@ -63,9 +124,11 @@ void App::action(Action action) {
         openPrompt(Prompt::Charts);
         break;
     case Action::Fit:
+        viewer.rememberView();
         viewer.fitCharts();
         break;
     case Action::World:
+        viewer.rememberView();
         viewer.fitWorld();
         break;
     case Action::Catalogue:

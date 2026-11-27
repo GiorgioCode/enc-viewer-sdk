@@ -89,6 +89,10 @@ void drawInterface(App& a) {
     const auto scene = a.viewer.sceneInfo();
     const int x = a.mapWidth() + 16;
     text(x, 60, "COLECCION ENC", ink);
+    const auto contacts = a.viewer.contactLayerInfo();
+    if (contacts.count)
+        text(x, a.layerBottom(),
+             std::to_string(contacts.count) + " CONTACTOS / B: CAPA / S: FILTRO", muted, 316);
     text(x + 216, 84, std::to_string(scene.cellCount) + " CELDAS", muted, 112);
     const auto layers = a.viewer.layers();
     const int rows = std::max(0, (a.layerBottom() - 112) / 18);
@@ -104,7 +108,38 @@ void drawInterface(App& a) {
     const int detailTop = a.layerBottom() + 18, detailBottom = a.overlayTop() - 14;
     text(x, detailTop, "OBJETO SELECCIONADO", ink);
     const auto selected = a.viewer.selected();
-    if (!selected)
+    const auto contact =
+        a.selectedContactId ? a.viewer.contact(*a.selectedContactId) : std::nullopt;
+    if (contact) {
+        const auto& c = contact->report;
+        const std::string source = c.source == enc::ContactSource::AIS     ? "AIS"
+                                   : c.source == enc::ContactSource::Radar ? "RADAR"
+                                                                           : "AIS+RADAR";
+        text(x, detailTop + 18, source + " / " + (c.name.empty() ? c.id : c.name), ink, 316);
+        std::ostringstream info;
+        info << "COG ";
+        if (c.courseOverGround)
+            info << *c.courseOverGround;
+        else
+            info << "N/D";
+        info << " / SOG ";
+        if (c.speedOverGround)
+            info << *c.speedOverGround << " kn";
+        else
+            info << "N/D";
+        text(x, detailTop + 36, info.str(), muted, 316);
+        if (contact->cpaNm && contact->tcpaMinutes) {
+            std::ostringstream cpa;
+            cpa << std::fixed << std::setprecision(2) << "CPA " << *contact->cpaNm << " NM / TCPA "
+                << *contact->tcpaMinutes << " MIN";
+            text(x, detailTop + 51, cpa.str(), muted, 316);
+        }
+        text(x, detailTop + 66,
+             contact->state == enc::ContactState::Lost ? "PERDIDO / G: RECONOCER"
+             : contact->dangerous                      ? "PELIGRO / G: RECONOCER"
+                                                       : "G: RECONOCER / B: CAPA CONTACTOS",
+             ink, 316);
+    } else if (!selected)
         text(x, detailTop + 22, "CLIC EN UNA BOYA, LINEA O AREA", muted, 316);
     else {
         text(x, detailTop + 18, selected->objectClass + " / " + selected->symbol.family, ink, 316);
@@ -118,7 +153,10 @@ void drawInterface(App& a) {
             const auto& attribute =
                 selected->attributes[static_cast<std::size_t>(i + a.attributeScroll)];
             text(x, detailTop + 36 + i * 15, attribute.name, muted, 88);
-            text(x + 96, detailTop + 36 + i * 15, attribute.value, ink, 220);
+            const auto& decoded =
+                selected->decodedAttributes[static_cast<std::size_t>(i + a.attributeScroll)];
+            text(x + 96, detailTop + 36 + i * 15,
+                 decoded.meaning.empty() ? attribute.value : decoded.meaning, ink, 220);
         }
     }
     const auto radar = a.viewer.radarInfo();
@@ -148,6 +186,8 @@ void drawInterface(App& a) {
         coordinates << std::fixed << std::setprecision(5) << "  LON " << p.lon << " LAT " << p.lat;
         status += coordinates.str();
     }
+    if (a.streamer && a.streamer->info().loading)
+        status = "CARGANDO ENC EN SEGUNDO PLANO";
     text(12, a.height - 15, status, muted, a.width - 24);
     if (a.prompt != Prompt::None) {
         const int w = std::min(820, a.width - 80), left = (a.width - w) / 2,

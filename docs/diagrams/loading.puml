@@ -14,7 +14,7 @@ Catalog -> fs : recorrer .000 / normalizar / ordenar
 loop cada base
   Catalog -> fs : buscar actualizaciones vecinas
   Catalog -> gdal : abrir base con UPDATES=APPLY
-  gdal --> Catalog : DSID, escala y cobertura
+  gdal --> Catalog : DSID, escala y cobertura M_COVR
   Catalog -> host : progreso / posibilidad de cancelar
 end
 Catalog --> host : Status + catálogo consultable
@@ -25,7 +25,7 @@ loop cada celda
   Viewer -> host : progreso / posibilidad de cancelar
   Viewer -> gdal : leer atributos y geometrías
   gdal --> Viewer : objetos WGS84
-  Viewer -> staging : copiar / teselar / acumular límites
+  Viewer -> staging : copiar / teselar / conservar cobertura
 end
 alt cancelación o fallo estricto
   Viewer -> staging : descartar
@@ -33,7 +33,13 @@ alt cancelación o fallo estricto
 else carga confirmada
   Viewer -> staging : decodificar símbolos y asociar equipos
   Viewer -> Viewer : reemplazar ENC / invalidar FeatureId
+  Viewer -> Viewer : conservar TIFF, contactos y preferencias
   Viewer -> Viewer : encuadrar y reconstruir ecos simulados
   Viewer --> host : Status + diagnósticos
 end
+note over Viewer
+  ChartStreamer reutiliza esta preparación CPU
+  y confirma desde poll, sin cambiar la cámara.
+  Ver streaming.puml para el recorrido por región.
+end note
 @enduml
