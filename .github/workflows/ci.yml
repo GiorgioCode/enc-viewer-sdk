@@ -25,7 +25,7 @@ jobs:
       CXX: ${{ matrix.cxx }}
       LIBGL_ALWAYS_SOFTWARE: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Instalar dependencias
@@ -63,7 +63,7 @@ jobs:
     name: Biblioteca sin GLFW ni EGL
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Instalar dependencias del motor
